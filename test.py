@@ -7,8 +7,10 @@ SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 SCREEN_TITLE = "AI"
 
-ACCELERATION = 0.2
-STEERING_SPEED = 5
+ACCELERATION = 5
+STEERING_SPEED = 250
+
+MAX_SPEED = 5
 
 UP = arcade.key.W
 DOWN = arcade.key.S
@@ -109,19 +111,22 @@ class MyGame(arcade.Window):
         """Movement and game logic"""
 
         if self.up_pressed and not self.down_pressed:
-            self.player_sprite.speed -= ACCELERATION
+            self.player_sprite.speed -= ACCELERATION * delta_time
 
         elif self.down_pressed and not self.up_pressed:
-            self.player_sprite.speed += ACCELERATION
+            self.player_sprite.speed += ACCELERATION * delta_time
 
         if self.left_pressed and not self.right_pressed:
-            self.player_sprite.change_angle = STEERING_SPEED
+            self.player_sprite.change_angle = STEERING_SPEED * delta_time
 
         elif self.right_pressed and not self.left_pressed:
-            self.player_sprite.change_angle = -STEERING_SPEED
+            self.player_sprite.change_angle = -STEERING_SPEED * delta_time
 
         elif not self.right_pressed and not self.left_pressed:
             self.player_sprite.change_angle = 0
+
+        self.player_sprite.speed = min(MAX_SPEED, self.player_sprite.speed)
+        self.player_sprite.speed = max(-MAX_SPEED, self.player_sprite.speed)
 
         # Move the player
         self.player_list.update()
