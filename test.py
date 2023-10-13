@@ -1,70 +1,55 @@
-#https://api.arcade.academy/en/latest/examples/sprite_move_keyboard.html#sprite-move-keyboard
-
-"""
-Move Sprite With Keyboard
-
-Simple program to show moving a sprite with the keyboard.
-The sprite_move_keyboard_better.py example is slightly better
-in how it works, but also slightly more complex.
-
-Artwork from https://kenney.nl
-
-If Python and Arcade are installed, this example can be run from the command line with:
-python -m arcade.examples.sprite_move_keyboard
-"""
-
+import math
 import arcade
 
 SPRITE_SCALING = 0.5
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-SCREEN_TITLE = "Move Sprite with Keyboard Example"
+SCREEN_TITLE = "AI"
 
-MOVEMENT_SPEED = 5
+ACCELERATION = 0.2
+STEERING_SPEED = 5
 
+UP = arcade.key.W
+DOWN = arcade.key.S
+LEFT = arcade.key.A
+RIGHT = arcade.key.D
 
 
 class Player(arcade.Sprite):
+    """Player class"""
 
-    """ Player Class """
+    def __init__(self, image, scale):
+        """Set up the player"""
 
+        # Call the parent init
+        super().__init__(image, scale)
 
+        # Create a variable to hold our speed. 'angle' is created by the parent
+        self.speed = 0
 
     def update(self):
+        # Convert angle in degrees to radians.
+        angle_rad = math.radians(self.angle)
 
-        """ Move the player """
+        # Rotate the car
+        self.angle += self.change_angle  # *self.speed?
 
-        # Move player.
+        # Use math to find our change based on our speed and angle
+        self.center_x += -self.speed * math.sin(angle_rad)
+        self.center_y += self.speed * math.cos(angle_rad)
 
-        # Remove these lines if physics engine is moving player.
-
-        self.center_x += self.change_x
-
-        self.center_y += self.change_y
-
-
-
-        # Check for out-of-bounds
-
+        # TODO: die when oob
+        # check for out-of-bounds
         if self.left < 0:
-
             self.left = 0
-
         elif self.right > SCREEN_WIDTH - 1:
-
             self.right = SCREEN_WIDTH - 1
 
-
-
         if self.bottom < 0:
-
             self.bottom = 0
-
         elif self.top > SCREEN_HEIGHT - 1:
-
             self.top = SCREEN_HEIGHT - 1
-
 
 
 class MyGame(arcade.Window):
@@ -86,20 +71,27 @@ class MyGame(arcade.Window):
         # Set up the player info
         self.player_sprite = None
 
+        # Track the current state of what key is pressed
+        self.left_pressed = False
+        self.right_pressed = False
+        self.up_pressed = False
+        self.down_pressed = False
+
         # Set the background color
-        arcade.set_background_color(arcade.color.AMAZON)
+        arcade.set_background_color(arcade.color.WHITE)
 
     def setup(self):
-        """ Set up the game and initialize the variables. """
+        """Set up the game and initialize the variables."""
 
         # Sprite lists
         self.player_list = arcade.SpriteList()
 
         # Set up the player
-        self.player_sprite = Player(":resources:images/animated_characters/female_person/"
-                                    "femalePerson_idle.png", SPRITE_SCALING)
-        self.player_sprite.center_x = 50
-        self.player_sprite.center_y = 50
+        self.player_sprite = Player(
+            ":resources:images/topdown_tanks/tank_blue.png", SPRITE_SCALING
+        )
+        self.player_sprite.center_x = SCREEN_WIDTH / 2
+        self.player_sprite.center_y = SCREEN_HEIGHT / 2
         self.player_list.append(self.player_sprite)
 
     def on_draw(self):
@@ -114,67 +106,54 @@ class MyGame(arcade.Window):
         self.player_list.draw()
 
     def on_update(self, delta_time):
-        """ Movement and game logic """
+        """Movement and game logic"""
 
+        if self.up_pressed and not self.down_pressed:
+            self.player_sprite.speed -= ACCELERATION
+
+        elif self.down_pressed and not self.up_pressed:
+            self.player_sprite.speed += ACCELERATION
+
+        if self.left_pressed and not self.right_pressed:
+            self.player_sprite.change_angle = STEERING_SPEED
+
+        elif self.right_pressed and not self.left_pressed:
+            self.player_sprite.change_angle = -STEERING_SPEED
+
+        elif not self.right_pressed and not self.left_pressed:
+            self.player_sprite.change_angle = 0
 
         # Move the player
-
         self.player_list.update()
 
-
-
     def on_key_press(self, key, modifiers):
-
-        """Called whenever a key is pressed. """
-
-
+        """Called whenever a key is pressed."""
 
         # If the player presses a key, update the speed
-
-        if key == arcade.key.W:
-
-            self.player_sprite.change_y = MOVEMENT_SPEED
-
-        elif key == arcade.key.S:
-
-            self.player_sprite.change_y = -MOVEMENT_SPEED
-
-        elif key == arcade.key.A:
-
-            self.player_sprite.change_x = -MOVEMENT_SPEED
-
-        elif key == arcade.key.D:
-
-            self.player_sprite.change_x = MOVEMENT_SPEED
-
-
+        if key == UP:
+            self.up_pressed = True
+        elif key == DOWN:
+            self.down_pressed = True
+        elif key == LEFT:
+            self.left_pressed = True
+        elif key == RIGHT:
+            self.right_pressed = True
 
     def on_key_release(self, key, modifiers):
+        """Called when the user releases a key."""
 
-        """Called when the user releases a key. """
-
-
-
-        # If a player releases a key, zero out the speed.
-
-        # This doesn't work well if multiple keys are pressed.
-
-        # Use 'better move by keyboard' example if you need to
-
-        # handle this.
-
-        if key == arcade.key.UP or key == arcade.key.DOWN:
-
-            self.player_sprite.change_y = 0
-
-        elif key == arcade.key.LEFT or key == arcade.key.RIGHT:
-
-            self.player_sprite.change_x = 0
-
+        if key == UP:
+            self.up_pressed = False
+        elif key == DOWN:
+            self.down_pressed = False
+        elif key == LEFT:
+            self.left_pressed = False
+        elif key == RIGHT:
+            self.right_pressed = False
 
 
 def main():
-    """ Main function """
+    """Main function"""
     window = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
     window.setup()
     arcade.run()
