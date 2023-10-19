@@ -5,7 +5,7 @@ SPRITE_SCALING = 0.5
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-SCREEN_TITLE = "AI"
+SCREEN_TITLE = "Deep Learning Cars"
 
 ACCELERATION = 5
 STEERING_SPEED = 250
@@ -41,7 +41,6 @@ class Player(arcade.Sprite):
         self.center_x += -self.speed * math.sin(angle_rad)
         self.center_y += self.speed * math.cos(angle_rad)
 
-        # TODO: die when oob
         # check for out-of-bounds
         if self.left < 0:
             self.left = 0
@@ -123,6 +122,9 @@ class MyGame(arcade.Window):
             self.player_sprite.change_angle = -STEERING_SPEED * delta_time
 
         elif not self.right_pressed and not self.left_pressed:
+            self.player_sprite.change_angle = 0
+
+        elif self.right_pressed and self.left_pressed:
             self.player_sprite.change_angle = 0
 
         self.player_sprite.speed = min(MAX_SPEED, self.player_sprite.speed)
