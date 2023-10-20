@@ -1,6 +1,5 @@
 # https://www.pygame.org/docs/#pygame-front-page
 
-# Example file showing a basic pygame "game loop"
 import sys
 import math
 import pygame
@@ -11,6 +10,8 @@ SCREEN_TITLE = "Deep Learning Cars"
 
 ACCELERATION = 5
 STEERING_SPEED = 5
+
+MAX_SPEED = 5
 
 PLAYER_SIZE = 10
 
@@ -39,27 +40,40 @@ while True:
 
     pygame.draw.circle(screen, "red", player_pos, PLAYER_SIZE)
 
+    #inputs
     keys = pygame.key.get_pressed()
     if keys[pygame.K_w] and not keys[pygame.K_s]:
+        #accelerate forward
         player_speed += ACCELERATION * dt
 
     elif keys[pygame.K_s] and not keys[pygame.K_w]:
+        #accelerate backwards
         player_speed -= ACCELERATION * dt
 
     if keys[pygame.K_a] and not keys[pygame.K_d]:
+        #turn right
         player_change_angle = STEERING_SPEED * dt
 
     elif keys[pygame.K_d] and not keys[pygame.K_a]:
+        #turn left
         player_change_angle = -STEERING_SPEED * dt
 
     elif not keys[pygame.K_d] and not keys[pygame.K_a]:
+        #dont turn
         player_change_angle = 0
 
     elif keys[pygame.K_d] and keys[pygame.K_a]:
+        #dont turn
         player_change_angle = 0
 
+    #update direction
     player_direction += player_change_angle
 
+    #cap speed
+    player_speed = min(MAX_SPEED, player_speed)
+    player_speed = max(-MAX_SPEED, player_speed)
+
+    #calculate new postion
     player_pos.x += player_speed * math.sin(player_direction)
     player_pos.y += player_speed * math.cos(player_direction)
 

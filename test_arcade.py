@@ -88,7 +88,7 @@ class MyGame(arcade.Window):
         self.player_list = arcade.SpriteList()
 
         # Set up the player
-        self.player_sprite = Player(
+        self.playecr_sprite = Player(
             ":resources:images/topdown_tanks/tank_blue.png", SPRITE_SCALING
         )
         self.player_sprite.center_x = SCREEN_WIDTH / 2
