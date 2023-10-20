@@ -1,48 +1,109 @@
-# https://www.pygame.org/docs/#pygame-front-page
-
 import os
 import sys
 import math
 import pygame
 
-SPRITE_SCALING = 0.05
 
+class Player:
+    def __init__(
+        self, image_path, initial_pos, acceleration, steering_speed, max_speed
+    ):
+        self.image = pygame.image.load(image_path).convert_alpha()
+        self.image = pygame.transform.scale(
+            self.image,
+            (
+                int(self.image.get_width() * SPRITE_SCALING),
+                int(self.image.get_height() * SPRITE_SCALING),
+            ),
+        )
+        self.pos = pygame.Vector2(initial_pos)
+        self.speed = 0
+        self.direction = 0  # radians
+        self.change_angle = 0
+        self.radius = math.sqrt(
+            (self.image.get_width() / 2) ** 2 + (self.image.get_height() / 2) ** 2
+        )
+        self.rect = self.image.get_rect(center=self.pos)
+        self.acceleration = acceleration
+        self.steering_speed = steering_speed
+        self.max_speed = max_speed
+
+    def update(self, dt):
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_w] and not keys[pygame.K_s]:
+            self.speed += self.acceleration * dt
+        elif keys[pygame.K_s] and not keys[pygame.K_w]:
+            self.speed -= self.acceleration * dt
+
+        if keys[pygame.K_a] and not keys[pygame.K_d]:
+            self.change_angle = self.steering_speed * dt
+        elif keys[pygame.K_d] and not keys[pygame.K_a]:
+            self.change_angle = -self.steering_speed * dt
+        elif not keys[pygame.K_d] and not keys[pygame.K_a]:
+            self.change_angle = 0
+        elif keys[pygame.K_d] and keys[pygame.K_a]:
+            self.change_angle = 0
+
+        self.direction += self.change_angle
+        self.speed = min(self.max_speed, self.speed)
+        self.speed = max(-self.max_speed, self.speed)
+
+        self.pos.x += self.speed * math.sin(self.direction)
+        self.pos.y += self.speed * math.cos(self.direction)
+
+    def cast_ray(self, angle):
+        x, y = self.pos
+        step_size = 5
+
+        while 0 <= x < SCREEN_WIDTH and 0 <= y < SCREEN_HEIGHT:
+            x += step_size * math.cos(angle)
+            y += step_size * math.sin(angle)
+
+            for wall in walls:
+                if wall.collidepoint(x, y):
+                    return x, y
+
+        return x, y
+
+    def check_collision(self, walls):
+        for wall in walls:
+            if pygame.Rect(
+                self.pos[0] - self.radius,
+                self.pos[1] - self.radius,
+                2 * self.radius,
+                2 * self.radius,
+            ).colliderect(wall):
+                self.death()
+
+        if (
+            self.pos.x < 0 + self.radius
+            or self.pos.x > SCREEN_WIDTH - self.radius
+            or self.pos.y < 0 + self.radius
+            or self.pos.y > SCREEN_HEIGHT - self.radius
+        ):
+            self.death()
+
+    def death(self):
+        self.pos = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        self.speed = 0
+        self.direction = 0
+
+
+# Constants
+SPRITE_SCALING = 0.05
 SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Deep Learning Cars"
-
 ACCELERATION = 5
 STEERING_SPEED = 5
-
 MAX_SPEED = 8
 
-# pygame setup
+# Pygame setup
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 dt = 0
-
-player_image = pygame.image.load("tank_real.png").convert_alpha()
-player_image = pygame.transform.scale(
-    player_image,
-    (
-        int(player_image.get_width() * SPRITE_SCALING),
-        int(player_image.get_height() * SPRITE_SCALING),
-    ),
-)
-
-player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-player_speed = 0
-player_direction = 0  # radians
-player_change_angle = 0
-
-# Calculate the radius of the player
-player_radius = math.sqrt(
-    (player_image.get_width() / 2) ** 2 + (player_image.get_height() / 2) ** 2
-)
-
-player_rect = player_image.get_rect(center=player_pos)
 
 # Wall setup
 walls = [
@@ -52,134 +113,40 @@ walls = [
     pygame.Rect(700, 100, 20, 400),
 ]
 
-
-def cast_ray(angle):
-    x, y = player_pos
-    step_size = 5
-
-    while 0 <= x < SCREEN_WIDTH and 0 <= y < SCREEN_HEIGHT:
-        x += step_size * math.cos(angle)
-        y += step_size * math.sin(angle)
-
-        for wall in walls:
-            if wall.collidepoint(x, y):
-                return x, y
-
-    return x, y
-
-
-def death():
-    player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-    player_speed = 0
-    player_direction = 0
-
+# Create player instance
+player = Player(
+    "tank_real_2.png",
+    (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+    ACCELERATION,
+    STEERING_SPEED,
+    MAX_SPEED,
+)
 
 while True:
-    # poll for events
-    # pygame.QUIT event means the user clicked X to close your window
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
 
-    # inputs
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_w] and not keys[pygame.K_s]:
-        # accelerate forward
-        player_speed += ACCELERATION * dt
+    player.update(dt)
+    player.check_collision(walls)
 
-    elif keys[pygame.K_s] and not keys[pygame.K_w]:
-        # accelerate backwards
-        player_speed -= ACCELERATION * dt
-
-    if keys[pygame.K_a] and not keys[pygame.K_d]:
-        # turn right
-        player_change_angle = STEERING_SPEED * dt
-
-    elif keys[pygame.K_d] and not keys[pygame.K_a]:
-        # turn left
-        player_change_angle = -STEERING_SPEED * dt
-
-    elif not keys[pygame.K_d] and not keys[pygame.K_a]:
-        # dont turn
-        player_change_angle = 0
-
-    elif keys[pygame.K_d] and keys[pygame.K_a]:
-        # dont turn
-        player_change_angle = 0
-
-    # update direction
-    player_direction += player_change_angle
-
-    # cap speed
-    player_speed = min(MAX_SPEED, player_speed)
-    player_speed = max(-MAX_SPEED, player_speed)
-
-    # calculate new postion
-    player_pos.x += player_speed * math.sin(player_direction)
-    player_pos.y += player_speed * math.cos(player_direction)
-
-    # oob
-    if player_pos.x < 0 + player_radius:
-        death()
-        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-        player_speed = 0
-        player_direction = 0
-    if player_pos.x > screen.get_width() - player_radius:
-        death()
-        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-        player_speed = 0
-        player_direction = 0
-    if player_pos.y < 0 + player_radius:
-        death()
-        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-        player_speed = 0
-        player_direction = 0
-    if player_pos.y > screen.get_height() - player_radius:
-        death()
-        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-        player_speed = 0
-        player_direction = 0
-
-    # wall collision
-    for wall in walls:
-        if pygame.Rect(
-            player_pos[0] - player_radius,
-            player_pos[1] - player_radius,
-            2 * player_radius,
-            2 * player_radius,
-        ).colliderect(wall):
-            death()
-            player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
-            player_speed = 0
-            player_direction = 0
-
-    # fill the screen with a color to wipe away anything from last frame
     screen.fill("white")
-
-    # render walls
     for wall in walls:
         pygame.draw.rect(screen, (0, 0, 0), wall)
 
-    # raycasting
     for angle in range(0, 181, 30):
-        ray_angle = math.radians(angle) - player_direction
-        end_point = cast_ray(ray_angle)
+        ray_angle = math.radians(angle) - player.direction
+        end_point = player.cast_ray(ray_angle)
         pygame.draw.line(
-            screen, (255, 0, 0), player_pos, (int(end_point[0]), int(end_point[1]))
+            screen, (255, 0, 0), player.pos, (int(end_point[0]), int(end_point[1]))
         )
 
-    # render player
     rotated_player = pygame.transform.rotate(
-        player_image, math.degrees(player_direction)
+        player.image, math.degrees(player.direction)
     )
-    player_rect = rotated_player.get_rect(center=player_pos)
-    screen.blit(rotated_player, player_rect.topleft)
+    player.rect = rotated_player.get_rect(center=player.pos)
+    screen.blit(rotated_player, player.rect.topleft)
 
-    # flip() the display to put your work on screen
     pygame.display.flip()
-
-    # limits FPS to 60
-    # dt is delta time in seconds since last frame, used for framerate-
-    # independent physics.
     dt = clock.tick(60) / 1000
