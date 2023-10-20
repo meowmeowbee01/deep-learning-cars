@@ -1,13 +1,30 @@
-import os
-import sys
 import math
+import sys
 import pygame
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# Constants
+SPRITE_SCALING = 0.05
+SCREEN_WIDTH = 700
+SCREEN_HEIGHT = 700
+SCREEN_DIAGONAL = math.sqrt(SCREEN_WIDTH**2 + SCREEN_HEIGHT**2)
+SCREEN_TITLE = "Deep Learning Tank"
+ACCELERATION = 1
+STEERING_SPEED = 2.5
+MAX_SPEED = 5
+INITIAL_POS = 60, 350
+
+# Training parameters
+input_size = 9  # speed, direction, position(x, y), distance from 5 raycasts
+output_size = 2  # steering direction, acceleration
+learning_rate = 0.001
+epochs = 1000
 
 
 class Player:
-    def __init__(
-        self, image_path, initial_pos, acceleration, steering_speed, max_speed
-    ):
+    def __init__(self, image_path, initial_pos, max_speed):
         self.image = pygame.image.load(image_path).convert_alpha()
         self.image = pygame.transform.scale(
             self.image,
@@ -20,31 +37,20 @@ class Player:
         self.speed = 0
         self.direction = 0  # radians
         self.change_angle = 0
+        self.acceleration = 0
         self.radius = math.sqrt(
             (self.image.get_width() / 2) ** 2 + (self.image.get_height() / 2) ** 2
         )
         self.rect = self.image.get_rect(center=self.pos)
-        self.acceleration = acceleration
-        self.steering_speed = steering_speed
         self.max_speed = max_speed
 
+        self.raycast_hits = []
+
     def update(self, dt):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_w] and not keys[pygame.K_s]:
-            self.speed += self.acceleration * dt
-        elif keys[pygame.K_s] and not keys[pygame.K_w]:
-            self.speed -= self.acceleration * dt
+        self.direction += (self.change_angle * STEERING_SPEED) * dt
 
-        if keys[pygame.K_a] and not keys[pygame.K_d]:
-            self.change_angle = self.steering_speed * dt
-        elif keys[pygame.K_d] and not keys[pygame.K_a]:
-            self.change_angle = -self.steering_speed * dt
-        elif not keys[pygame.K_d] and not keys[pygame.K_a]:
-            self.change_angle = 0
-        elif keys[pygame.K_d] and keys[pygame.K_a]:
-            self.change_angle = 0
+        self.speed += (self.acceleration * ACCELERATION) * dt
 
-        self.direction += self.change_angle
         self.speed = min(self.max_speed, self.speed)
         self.speed = max(-self.max_speed, self.speed)
 
@@ -61,10 +67,18 @@ class Player:
 
             for wall in walls:
                 if wall.collidepoint(x, y):
-                    return x, y
+                    return pygame.Vector2(x, y)
 
-        return x, y
+        return pygame.Vector2(x, y)
 
+    def cast_rays(self):
+        self.raycast_hits = []
+        for angle in range(0, 181, 45):
+            ray_angle = math.radians(angle) - player.direction
+            end_point = self.cast_ray(ray_angle)
+            self.raycast_hits.append(end_point)
+
+    # returns True if death was triggered, and the distance to the right
     def check_collision(self, walls):
         for wall in walls:
             if pygame.Rect(
@@ -74,6 +88,7 @@ class Player:
                 2 * self.radius,
             ).colliderect(wall):
                 self.death()
+                return True, self.pos.x
 
         if (
             self.pos.x < 0 + self.radius
@@ -82,22 +97,50 @@ class Player:
             or self.pos.y > SCREEN_HEIGHT - self.radius
         ):
             self.death()
+            return True, self.pos.x
+
+        return False, self.pos.x
 
     def death(self):
         self.pos = pygame.Vector2(INITIAL_POS)
         self.speed = 0
         self.direction = 0
 
+    def get_inputs(self):
+        return [
+            self.speed / MAX_SPEED,  # Normalize speed to [0, 1]
+            self.direction * (2 * math.pi),  # Normalize direction to [0, 1]
+            self.pos.x / SCREEN_WIDTH,  # Normalize x position to [0, 1]
+            self.pos.y / SCREEN_HEIGHT,  # Normalize y position to [0, 1]
+            pygame.Vector2(self.pos - self.raycast_hits[0]).length() / SCREEN_DIAGONAL,
+            pygame.Vector2(self.pos - self.raycast_hits[1]).length() / SCREEN_DIAGONAL,
+            pygame.Vector2(self.pos - self.raycast_hits[2]).length() / SCREEN_DIAGONAL,
+            pygame.Vector2(self.pos - self.raycast_hits[3]).length() / SCREEN_DIAGONAL,
+            pygame.Vector2(self.pos - self.raycast_hits[4]).length() / SCREEN_DIAGONAL,
+        ]
 
-# Constants
-SPRITE_SCALING = 0.005
-SCREEN_WIDTH = 1500
-SCREEN_HEIGHT = 700
-SCREEN_TITLE = "Deep Learning Cars"
-ACCELERATION = 1
-STEERING_SPEED = 2.5
-MAX_SPEED = 20
-INITIAL_POS = 60, 350
+
+# Neural Network Definition
+class CarController(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(CarController, self).__init__()
+        self.fc1 = nn.Linear(input_size, 8)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(8, output_size)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
+
+# neural net instance
+model = CarController(input_size, output_size)
+
+# Define loss and optimizer
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), learning_rate)
 
 # Pygame setup
 pygame.init()
@@ -107,47 +150,74 @@ clock = pygame.time.Clock()
 dt = 0
 
 # Wall setup
-walls = [
-    pygame.Rect(0, 300, 150, 20),
-    pygame.Rect(130, 320, 20, 100),
-    pygame.Rect(0, 500, 300, 20),
-]
+walls = [pygame.Rect(0, 310, 150, 20), pygame.Rect(0, 500, 300, 20)]
 
 # Create player instance
 player = Player(
     "tank_real_2.png",
     INITIAL_POS,
-    ACCELERATION,
-    STEERING_SPEED,
     MAX_SPEED,
 )
 
-while True:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
+# Training loop
+for epoch in range(epochs):
+    i = 0
+    running = True
+    while running:
+        for event in pygame.event.get():
+            # event handling
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
 
-    player.update(dt)
-    player.check_collision(walls)
+        reward = 0
 
-    screen.fill("white")
-    for wall in walls:
-        pygame.draw.rect(screen, (0, 0, 0), wall)
+        # game logic
+        player.update(dt)
+        player.cast_rays()
+        died, reward = player.check_collision(walls)
+        running = not died
 
-    for angle in range(0, 181, 30):
-        ray_angle = math.radians(angle) - player.direction
-        end_point = player.cast_ray(ray_angle)
-        pygame.draw.circle(screen, (0, 255, 0), end_point, 5)
-        pygame.draw.line(
-            screen, (255, 127, 127), player.pos, (int(end_point[0]), int(end_point[1]))
+        # Get inputs for the neural network
+        inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
+
+        # Forward pass
+        outputs = model(inputs)
+
+        # Extract steering direction and acceleration from the outputs
+        player.change_angle, player.acceleration = outputs[0].item(), outputs[1].item()
+
+        # nn outputs = car inputs
+        print(str(player.change_angle) + "\t" + str(player.acceleration))
+
+        # clear previous screen
+        screen.fill((255, 255, 255))
+
+        # render walls
+        for wall in walls:
+            pygame.draw.rect(screen, (0, 0, 0), wall)
+
+        # render raycast
+        for hit in player.raycast_hits:
+            pygame.draw.circle(screen, (0, 255, 0), hit, 5)
+            pygame.draw.line(
+                screen, (255, 127, 127), player.pos, (int(hit[0]), int(hit[1]))
+            )
+
+        # render player
+        rotated_player = pygame.transform.rotate(
+            player.image, math.degrees(player.direction)
         )
+        player.rect = rotated_player.get_rect(center=player.pos)
+        screen.blit(rotated_player, player.rect.topleft)
 
-    rotated_player = pygame.transform.rotate(
-        player.image, math.degrees(player.direction)
-    )
-    player.rect = rotated_player.get_rect(center=player.pos)
-    screen.blit(rotated_player, player.rect.topleft)
+        # output render to display and update deltatime
+        pygame.display.flip()
+        dt = clock.tick(60) / 1000
 
-    pygame.display.flip()
-    dt = clock.tick(60) / 1000
+    # Backpropagation and optimization
+    optimizer.zero_grad()
+    reward_tensor = torch.tensor([reward] * outputs.size(0), dtype=torch.float32)
+    loss = criterion(outputs, reward_tensor)
+    loss.backward()
+    optimizer.step()
