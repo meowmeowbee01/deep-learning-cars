@@ -11,8 +11,8 @@ SCREEN_WIDTH = 700
 SCREEN_HEIGHT = 700
 SCREEN_DIAGONAL = math.sqrt(SCREEN_WIDTH**2 + SCREEN_HEIGHT**2)
 SCREEN_TITLE = "Deep Learning Tank"
-ACCELERATION = 1
-STEERING_SPEED = 2.5
+ACCELERATION = 0.2
+STEERING_SPEED = 0.1
 MAX_SPEED = 5
 INITIAL_POS = 60, 350
 
@@ -47,9 +47,9 @@ class Player:
         self.raycast_hits = []
 
     def update(self, dt):
-        self.direction += (self.change_angle * STEERING_SPEED) * dt
+        self.direction += self.change_angle * STEERING_SPEED
 
-        self.speed += (self.acceleration * ACCELERATION) * dt
+        self.speed += self.acceleration * ACCELERATION
 
         self.speed = min(self.max_speed, self.speed)
         self.speed = max(-self.max_speed, self.speed)
@@ -161,22 +161,28 @@ player = Player(
 
 # Training loop
 for epoch in range(epochs):
-    i = 0
     running = True
+    total_reward = 0
+    i = 0
     while running:
+        # event handling
         for event in pygame.event.get():
-            # event handling
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-
-        reward = 0
 
         # game logic
         player.update(dt)
         player.cast_rays()
         died, reward = player.check_collision(walls)
+
+        if i > 5 * 60:
+            died = True
+            player.death()
+
         running = not died
+
+        total_reward += reward
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -185,13 +191,13 @@ for epoch in range(epochs):
         outputs = model(inputs)
 
         # Extract steering direction and acceleration from the outputs
-        player.change_angle, player.acceleration = outputs[0].item(), outputs[1].item()
+        player.change_angle = torch.tanh(outputs[0]).item()
+        player.acceleration = torch.tanh(outputs[1]).item()
 
-        # nn outputs = car inputs
-        print(str(player.change_angle) + "\t" + str(player.acceleration))
+        # print(str(player.change_angle) + "\t" + str(player.acceleration))
 
         # clear previous screen
-        screen.fill((255, 255, 255))
+        screen.fill((127, 127, 127))
 
         # render walls
         for wall in walls:
@@ -217,7 +223,7 @@ for epoch in range(epochs):
 
     # Backpropagation and optimization
     optimizer.zero_grad()
-    reward_tensor = torch.tensor([reward] * outputs.size(0), dtype=torch.float32)
+    reward_tensor = torch.tensor([total_reward] * outputs.size(0), dtype=torch.float32)
     loss = criterion(outputs, reward_tensor)
     loss.backward()
     optimizer.step()
