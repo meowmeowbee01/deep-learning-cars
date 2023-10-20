@@ -84,19 +84,20 @@ class Player:
             self.death()
 
     def death(self):
-        self.pos = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        self.pos = pygame.Vector2(INITIAL_POS)
         self.speed = 0
         self.direction = 0
 
 
 # Constants
-SPRITE_SCALING = 0.05
-SCREEN_WIDTH = 1200
+SPRITE_SCALING = 0.005
+SCREEN_WIDTH = 1500
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Deep Learning Cars"
-ACCELERATION = 5
-STEERING_SPEED = 5
-MAX_SPEED = 8
+ACCELERATION = 1
+STEERING_SPEED = 2.5
+MAX_SPEED = 20
+INITIAL_POS = 60, 350
 
 # Pygame setup
 pygame.init()
@@ -107,16 +108,15 @@ dt = 0
 
 # Wall setup
 walls = [
-    pygame.Rect(100, 100, 600, 20),
-    pygame.Rect(100, 100, 20, 400),
-    pygame.Rect(100, 500, 200, 20),
-    pygame.Rect(700, 100, 20, 400),
+    pygame.Rect(0, 300, 150, 20),
+    pygame.Rect(130, 320, 20, 100),
+    pygame.Rect(0, 500, 300, 20),
 ]
 
 # Create player instance
 player = Player(
     "tank_real_2.png",
-    (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+    INITIAL_POS,
     ACCELERATION,
     STEERING_SPEED,
     MAX_SPEED,
@@ -138,8 +138,9 @@ while True:
     for angle in range(0, 181, 30):
         ray_angle = math.radians(angle) - player.direction
         end_point = player.cast_ray(ray_angle)
+        pygame.draw.circle(screen, (0, 255, 0), end_point, 5)
         pygame.draw.line(
-            screen, (255, 0, 0), player.pos, (int(end_point[0]), int(end_point[1]))
+            screen, (255, 127, 127), player.pos, (int(end_point[0]), int(end_point[1]))
         )
 
     rotated_player = pygame.transform.rotate(
