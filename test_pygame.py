@@ -7,8 +7,8 @@ import pygame
 
 SPRITE_SCALING = 0.05
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = 1200
+SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Deep Learning Cars"
 
 ACCELERATION = 5
@@ -48,7 +48,7 @@ player_rect = player_image.get_rect(center=player_pos)
 walls = [
     pygame.Rect(100, 100, 600, 20),
     pygame.Rect(100, 100, 20, 400),
-    pygame.Rect(100, 500, 600, 20),
+    pygame.Rect(100, 500, 200, 20),
     pygame.Rect(700, 100, 20, 400),
 ]
 
@@ -68,6 +68,12 @@ def cast_ray(angle):
     return x, y
 
 
+def death():
+    player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+    player_speed = 0
+    player_direction = 0
+
+
 while True:
     # poll for events
     # pygame.QUIT event means the user clicked X to close your window
@@ -75,15 +81,6 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-
-    # fill the screen with a color to wipe away anything from last frame
-    screen.fill("white")
-
-    rotated_player = pygame.transform.rotate(
-        player_image, math.degrees(player_direction)
-    )
-    player_rect = rotated_player.get_rect(center=player_pos)
-    screen.blit(rotated_player, player_rect.topleft)
 
     # inputs
     keys = pygame.key.get_pressed()
@@ -124,24 +121,60 @@ while True:
 
     # oob
     if player_pos.x < 0 + player_radius:
-        player_pos.x = 0 + player_radius
+        death()
+        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+        player_speed = 0
+        player_direction = 0
     if player_pos.x > screen.get_width() - player_radius:
-        player_pos.x = screen.get_width() - player_radius
+        death()
+        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+        player_speed = 0
+        player_direction = 0
     if player_pos.y < 0 + player_radius:
-        player_pos.y = 0 + player_radius
+        death()
+        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+        player_speed = 0
+        player_direction = 0
     if player_pos.y > screen.get_height() - player_radius:
-        player_pos.y = screen.get_height() - player_radius
+        death()
+        player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+        player_speed = 0
+        player_direction = 0
 
-    # walls
+    # wall collision
+    for wall in walls:
+        if pygame.Rect(
+            player_pos[0] - player_radius,
+            player_pos[1] - player_radius,
+            2 * player_radius,
+            2 * player_radius,
+        ).colliderect(wall):
+            death()
+            player_pos = pygame.Vector2(screen.get_width() / 2, screen.get_height() / 2)
+            player_speed = 0
+            player_direction = 0
+
+    # fill the screen with a color to wipe away anything from last frame
+    screen.fill("white")
+
+    # render walls
     for wall in walls:
         pygame.draw.rect(screen, (0, 0, 0), wall)
 
+    # raycasting
     for angle in range(0, 181, 30):
         ray_angle = math.radians(angle) - player_direction
         end_point = cast_ray(ray_angle)
         pygame.draw.line(
             screen, (255, 0, 0), player_pos, (int(end_point[0]), int(end_point[1]))
         )
+
+    # render player
+    rotated_player = pygame.transform.rotate(
+        player_image, math.degrees(player_direction)
+    )
+    player_rect = rotated_player.get_rect(center=player_pos)
+    screen.blit(rotated_player, player_rect.topleft)
 
     # flip() the display to put your work on screen
     pygame.display.flip()
