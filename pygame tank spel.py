@@ -1,5 +1,6 @@
 import math
 import sys
+import numpy as np
 import pygame
 import torch
 import torch.nn as nn
@@ -10,12 +11,12 @@ import torch.optim as optim
 # settings
 SPRITE_SCALING = 0.05
 SCREEN_WIDTH = 100
-SCREEN_HEIGHT = 600
+SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Deep Learning Tank"
 ACCELERATION = 0.1
 STEERING_SPEED = 0.1
-MAX_SPEED = 10
-INITIAL_POS = 50, 300
+MAX_SPEED = 1
+INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
 FRAMES_PER_SECOND = 60
@@ -27,6 +28,10 @@ HIDDEN_LAYER_SIZE = 64
 OUTPUT_SIZE = 2  # steering direction, acceleration
 LEARNING_RATE = 0.001
 EPOCHS = 1000
+GAMMA = 0.99  # Discount factor
+EPSILON_CLIP = 0.2  # PPO clipping parameter
+VALUE_COEFF = 0.5  # Coefficient for the value loss
+ENTROPY_COEFF = 0.01  # Coefficient for the entropy loss
 
 
 class Player:
@@ -67,7 +72,7 @@ class Player:
 
         # cap speed
         self.speed = min(MAX_SPEED, self.speed)
-        self.speed = max(-MAX_SPEED, self.speed)
+        self.speed = max(0, self.speed)
 
         # update position
         self.pos.x += self.speed * math.sin(self.direction)
@@ -117,7 +122,7 @@ class Player:
 
     def get_inputs(self):
         inputs = [
-            self.speed / (2 * MAX_SPEED) + 0.5,  # Normalize speed to [0, 1]
+            self.speed / MAX_SPEED,  # Normalize speed to [0, 1]
             self.direction / (2 * math.pi),  # Normalize direction to [0, 1]
         ]
         for hit in self.raycast_hits:
@@ -156,9 +161,6 @@ class CarController(nn.Module):
 
 # neural net instance
 model = CarController()
-
-# Define loss and optimizer
-criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), LEARNING_RATE)
 
 # Pygame setup
@@ -176,11 +178,16 @@ for epoch in range(EPOCHS):
 
     # Wall setup
     walls = [
-        # pygame.Rect(0, 300, 700, 20),
+        # pygame.Rect(0, 500, 700, 20),
     ]
 
     # Create player instance
     player = Player()
+
+    # Lists to store data for computing the policy gradient
+    states = []
+    actions = []
+    rewards = []
 
     while running:
         # event handling
@@ -193,15 +200,17 @@ for epoch in range(EPOCHS):
         player.update(dt)
         died = player.check_collision(walls)
 
-        # die after too much time
-        if i > TIME_PER_RUN * FRAMES_PER_SECOND:
-            died = True
-        i += 1
-
         running = not died
 
+        # stop after too much time
+        if i > TIME_PER_RUN * FRAMES_PER_SECOND:
+            running = False
+        i += 1
+
         reward = player.pos.y
-        total_reward += reward
+
+        if died:
+            reward = -SCREEN_HEIGHT
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -211,23 +220,34 @@ for epoch in range(EPOCHS):
 
         # Extract steering direction and acceleration from the outputs
         # and squach to [-1, 1]
-        player.change_angle = -torch.tanh(outputs[0]).item()
+        player.change_angle = torch.tanh(outputs[0]).item()
         player.acceleration = torch.tanh(outputs[1]).item()
+
+
+        print(str(player.change_angle) + "\t" + str(player.acceleration))
+
+        states.append(inputs)
+        actions.append(
+            torch.tensor(
+                [player.change_angle, player.acceleration], dtype=torch.float32
+            )
+        )
+        rewards.append(reward)
 
         # rendering
 
         # clear previous screen
-        screen.fill((127, 127, 127))
+        screen.fill((0, 0, 0))
 
         # render walls
         for wall in walls:
-            pygame.draw.rect(screen, (0, 0, 0), wall)
+            pygame.draw.rect(screen, (127, 127, 127), wall)
 
         # render raycast
         for hit in player.raycast_hits:
-            pygame.draw.circle(screen, (0, 255, 0), hit, 5)
+            pygame.draw.circle(screen, (0, 127, 0), hit, 5)
             pygame.draw.line(
-                screen, (255, 127, 127), player.pos, (int(hit[0]), int(hit[1]))
+                screen, (127, 0, 0), player.pos, (int(hit[0]), int(hit[1]))
             )
 
         # render player
@@ -241,9 +261,23 @@ for epoch in range(EPOCHS):
         pygame.display.flip()
         dt = clock.tick(60) / 1000  # milliseconds
 
-    # Backpropagation and optimization
+    # Convert lists to tensors
+    states = torch.stack(states)
+    actions = torch.stack(actions)
+    rewards = torch.tensor(rewards, dtype=torch.float32)
+
+    # Compute advantages
+    advantages = rewards - rewards.mean()
+
+    # Compute policy loss
+    logits = model(states)
+    policy_distribution = torch.distributions.MultivariateNormal(
+        logits, scale_tril=torch.eye(2)
+    )
+    action_probabilities = policy_distribution.log_prob(actions)
+    policy_loss = -torch.mean(action_probabilities * advantages)
+
+    # Optimize policy
     optimizer.zero_grad()
-    reward_tensor = torch.tensor([total_reward] * outputs.size(0), dtype=torch.float32)
-    loss = criterion(outputs, -reward_tensor)
-    loss.backward()
+    policy_loss.backward()
     optimizer.step()
