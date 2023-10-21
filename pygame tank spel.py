@@ -9,13 +9,13 @@ import torch.optim as optim
 
 # settings
 SPRITE_SCALING = 0.05
-SCREEN_WIDTH = 350
-SCREEN_HEIGHT = 700
+SCREEN_WIDTH = 100
+SCREEN_HEIGHT = 600
 SCREEN_TITLE = "Deep Learning Tank"
 ACCELERATION = 0.1
 STEERING_SPEED = 0.1
 MAX_SPEED = 10
-INITIAL_POS = 60, 350
+INITIAL_POS = 50, 300
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
 FRAMES_PER_SECOND = 60
@@ -23,15 +23,14 @@ TIME_PER_RUN = 5  # seconds
 
 # Training parameters
 INPUT_SIZE = 7  # speed, direction, distance from 5 raycasts
-HIDDEN_LAYER_SIZE = 8
+HIDDEN_LAYER_SIZE = 64
 OUTPUT_SIZE = 2  # steering direction, acceleration
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.001
 EPOCHS = 1000
 
 
 class Player:
     def __init__(self):
-        print("new player instance")
         self.image = pygame.image.load(IMAGE_PATH).convert_alpha()
         self.image = pygame.transform.scale(
             self.image,
@@ -55,6 +54,14 @@ class Player:
     def update(self, dt):
         # update direction
         self.direction += self.change_angle * STEERING_SPEED
+
+        # normalize direction to always be positive
+        if self.direction <= 0:
+            self.direction += math.radians(360)
+
+        # normalize direction for full rotations
+        self.direction = self.direction % (2 * math.pi)
+
         # update speed
         self.speed += self.acceleration * ACCELERATION
 
@@ -66,6 +73,10 @@ class Player:
         self.pos.x += self.speed * math.sin(self.direction)
         self.pos.y += self.speed * math.cos(self.direction)
 
+        # update raycasts
+        self.cast_rays()
+
+    # returns Vector2 of the absolute position of the hit point
     def cast_ray(self, angle):
         x, y = self.pos
         step_size = RAYCAST_STEP_SIZE
@@ -88,7 +99,7 @@ class Player:
             hit = self.cast_ray(ray_angle)
             self.raycast_hits.append(hit)
 
-    # returns True if wall was hit
+    # returns True if wall was hit or oob
     def check_collision(self, walls):
         for wall in walls:
             if self.rect.colliderect(wall):
@@ -105,15 +116,27 @@ class Player:
         return False
 
     def get_inputs(self):
-        return [
-            self.speed / MAX_SPEED,  # Normalize speed to [0, 1]
-            self.direction * 2 * math.pi,  # Normalize direction to [0, 1]
-            pygame.Vector2(self.pos - self.raycast_hits[0]).length(),  # not normalized
-            pygame.Vector2(self.pos - self.raycast_hits[1]).length(),  # not normalized
-            pygame.Vector2(self.pos - self.raycast_hits[2]).length(),  # not normalized
-            pygame.Vector2(self.pos - self.raycast_hits[3]).length(),  # not normalized
-            pygame.Vector2(self.pos - self.raycast_hits[4]).length(),  # not normalized
+        inputs = [
+            self.speed / (2 * MAX_SPEED) + 0.5,  # Normalize speed to [0, 1]
+            self.direction / (2 * math.pi),  # Normalize direction to [0, 1]
         ]
+        for hit in self.raycast_hits:
+            # calculate relative position of hit
+            rel_pos = pygame.Vector2(self.pos - hit)
+            # then calculate length
+            distance = rel_pos.length()
+            # then squach to maximum 1
+            squached_distance = math.tanh(
+                distance / ((SCREEN_HEIGHT + SCREEN_WIDTH) / 2)
+            )
+            # add to inputs
+            inputs.append(squached_distance)
+
+        for value in inputs:
+            if value > 1 or value < 0:
+                print("inputs not normalized")
+                print(value)
+        return inputs
 
 
 # Neural Network Definition
@@ -153,9 +176,7 @@ for epoch in range(EPOCHS):
 
     # Wall setup
     walls = [
-        pygame.Rect(0, 200, 700, 20),
-        pygame.Rect(0, 600, 700, 20),
-        pygame.Rect(200, 200, 20, 150),
+        # pygame.Rect(0, 300, 700, 20),
     ]
 
     # Create player instance
@@ -170,7 +191,6 @@ for epoch in range(EPOCHS):
 
         # game logic
         player.update(dt)
-        player.cast_rays()
         died = player.check_collision(walls)
 
         # die after too much time
@@ -180,7 +200,7 @@ for epoch in range(EPOCHS):
 
         running = not died
 
-        reward = player.pos.x
+        reward = player.pos.y
         total_reward += reward
 
         # Get inputs for the neural network
@@ -190,8 +210,8 @@ for epoch in range(EPOCHS):
         outputs = model(inputs)
 
         # Extract steering direction and acceleration from the outputs
-        # and normalize to [-1, 1]
-        player.change_angle = torch.tanh(outputs[0]).item()
+        # and squach to [-1, 1]
+        player.change_angle = -torch.tanh(outputs[0]).item()
         player.acceleration = torch.tanh(outputs[1]).item()
 
         # rendering
@@ -224,6 +244,6 @@ for epoch in range(EPOCHS):
     # Backpropagation and optimization
     optimizer.zero_grad()
     reward_tensor = torch.tensor([total_reward] * outputs.size(0), dtype=torch.float32)
-    loss = criterion(outputs, reward_tensor)
+    loss = criterion(outputs, -reward_tensor)
     loss.backward()
     optimizer.step()
