@@ -15,13 +15,15 @@ SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.1
 STEERING_SPEED = 0.1
 MIN_SPEED = 0
-MAX_SPEED = 1
+MAX_SPEED = 10
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
 FRAMES_PER_SECOND = 60
 WALLS = [
-    # pygame.Rect(0, 500, 300, 20),
+    pygame.Rect(300, 0, 20, 350),
+    pygame.Rect(600, 350, 20, 350),
+    pygame.Rect(900, 0, 20, 350),
 ]
 
 # hyperparameters
@@ -30,11 +32,11 @@ OUTPUT_SIZE = 2  # acceleration, steering
 HIDDEN_LAYER_SIZE = 64
 
 # training settings
-TIME_PER_RUN = 5  # seconds
+TIME_PER_RUN = 10  # seconds
 RUN_COUNT = 100  # an extra 0th run will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 PERTURBATION_SCALE = 0.01
 
 MODEL_PATH = "poging 3/poging 3 best attempt.pth"
@@ -173,11 +175,11 @@ clock = pygame.time.Clock()
 
 def render(player):
     # clear previous screen
-    screen.fill((0, 0, 0))
+    screen.fill((127, 127, 127))
 
     # render walls
     for wall in WALLS:
-        pygame.draw.rect(screen, (127, 127, 127), wall)
+        pygame.draw.rect(screen, (0, 0, 0), wall)
 
     # render raycast
     for hit in player.raycast_hits:
@@ -193,7 +195,7 @@ def render(player):
 
     # output render to display and update deltatime
     pygame.display.flip()
-    dt = clock.tick(60) / 1000  # milliseconds
+    dt = clock.tick(FRAMES_PER_SECOND) / 1000  # milliseconds
 
     return dt
 
@@ -221,7 +223,7 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        score = player.pos.y
+        score = player.pos.x
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -251,7 +253,7 @@ def perturb_model(model, perturbation_scale):
 def train_batch(networks):
     scores = []
     for network in networks:
-        score = run(Player(), network)
+        score = run(Player(), network, True)
         scores.append(score)
     return scores
 
@@ -305,4 +307,4 @@ for i in range(RUN_COUNT):
     )
     best_network = networks[highest_score_index]
     torch.save(best_network.state_dict(), MODEL_PATH)
-    run(Player(), best_network)
+    # run(Player(), best_network, True)
