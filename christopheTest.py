@@ -1,10 +1,11 @@
+NUM_TANKS = 3
+
 import math
 import sys
 import pygame
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.distributions as distributions
 import random
 
 # Constants
@@ -40,9 +41,7 @@ GAMMA = 0.2
 # Value net parameters
 VALUE_HIDDEN_LAYER_SIZE = 64
 
-walls = [
-    # pygame.Rect(0, 500, 300, 20),
-]
+walls = []
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -187,7 +186,6 @@ class Value(nn.Module):
         state_value = self.fc2(x)
         return state_value
 
-
 class PPOLoss(nn.Module):
     def __init__(self, clip_ratio, value_coefficient, entropy_coefficient):
         super(PPOLoss, self).__init__()
@@ -248,13 +246,13 @@ def calculate_gae_advantages(rewards, values, gamma=0.99, lambda_=0.95):
     return advantages
 
 # Initialize your networks and optimizer
-policy_net = Policy()
-value_net = Value()
-optimizer = optim.Adam(
+policy_nets = [Policy() for _ in range(NUM_TANKS)]
+value_nets = [Value() for _ in range(NUM_TANKS)]
+optimizers = [optim.Adam(
     list(policy_net.parameters()) + list(value_net.parameters()), lr=LEARNING_RATE
-)
+) for policy_net, value_net in zip(policy_nets, value_nets)]
 
-ppo_loss = PPOLoss(CLIP_RATIO, VALUE_COEFFICIENT, ENTROPY_COEFFICIENT)
+ppo_losses = [PPOLoss(CLIP_RATIO, VALUE_COEFFICIENT, ENTROPY_COEFFICIENT) for _ in range(NUM_TANKS)]
 
 # Pygame setup
 pygame.init()
@@ -263,7 +261,6 @@ pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 
 # Create multiple tanks
-NUM_TANKS = 10
 tanks = [Player() for _ in range(NUM_TANKS)]
 
 # Lists to track the state of each tank
@@ -307,7 +304,7 @@ for epoch in range(NUM_EPOCHS):
 
                 inputs = torch.tensor(tank.get_inputs(), dtype=torch.float32)
 
-                outputs = policy_net(inputs)
+                outputs = policy_nets[tank_idx](inputs)
 
                 tank.change_angle = torch.tanh(outputs[0]).item()
                 tank.acceleration = torch.tanh(outputs[1]).item()
@@ -317,7 +314,7 @@ for epoch in range(NUM_EPOCHS):
                     torch.tensor([tank.change_angle, tank.acceleration], dtype=torch.float32)
                 )
                 rewards[tank_idx].append(torch.tensor(reward))
-                values[tank_idx].append(value_net(inputs))
+                values[tank_idx].append(value_nets[tank_idx](inputs))
 
         screen.fill((0, 0, 0))
 
@@ -347,6 +344,4 @@ for epoch in range(NUM_EPOCHS):
             tank_states[tank_idx]["hit_wall"] = False
             tank.reset()
 
-    # ... (rest of the PPO optimization loop)
-
-
+# ... (rest of the PPO optimization loop)
