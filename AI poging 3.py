@@ -40,6 +40,7 @@ BATCH_SIZE = 8
 PERTURBATION_SCALE = 0.01
 
 MODEL_PATH = "poging 3/poging 3 best attempt.pth"
+SHOULD_RENDER = False
 
 
 class Player:
@@ -88,6 +89,12 @@ class Player:
 
         # update raycasts
         self.cast_rays()
+
+        # update rect
+        rotated_player = pygame.transform.rotate(
+            self.image, math.degrees(self.direction)
+        )
+        self.rect = rotated_player.get_rect(center=self.pos)
 
     # returns Vector2 of the absolute position of the hit point
     def cast_ray(self, angle):
@@ -190,7 +197,6 @@ def render(player):
     rotated_player = pygame.transform.rotate(
         player.image, math.degrees(player.direction)
     )
-    player.rect = rotated_player.get_rect(center=player.pos)
     screen.blit(rotated_player, player.rect.topleft)
 
     # output render to display and update deltatime
@@ -253,7 +259,7 @@ def perturb_model(model, perturbation_scale):
 def train_batch(networks):
     scores = []
     for network in networks:
-        score = run(Player(), network, True)
+        score = run(Player(), network, SHOULD_RENDER)
         scores.append(score)
     return scores
 
