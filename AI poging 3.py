@@ -1,7 +1,6 @@
 import copy
 import math
 import sys
-import time
 import pygame
 import torch
 import torch.nn as nn
@@ -10,7 +9,7 @@ import torch.nn as nn
 
 # game settings
 SPRITE_SCALING = 0.05
-SCREEN_WIDTH = 100
+SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.1
@@ -199,7 +198,7 @@ def render(player):
     return dt
 
 
-def run(player, network):
+def run(player, network, shouldRender=False):
     running = True
     dt = 0
     i = 0
@@ -236,7 +235,8 @@ def run(player, network):
         player.acceleration = torch.tanh(outputs[1]).item()
 
         # rendering
-        dt = render(player)
+        if shouldRender:
+            dt = render(player)
     return score
 
 
@@ -255,12 +255,16 @@ def train_batch(networks):
         scores.append(score)
     return scores
 
-#load previous best from file
+
+# load previous best from file
 network = Network()
-network.load_state_dict(torch.load(MODEL_PATH))
+try:
+    network.load_state_dict(torch.load(MODEL_PATH))
+    networks = [network]
+except:
+    networks = []
 
 # run 0
-networks = [network]
 for i in range(BATCH_SIZE - 1):
     networks.append(Network())
 
@@ -277,7 +281,7 @@ print(
 
 best_network = networks[highest_score_index]
 
-# all runs
+# perform all runs
 for i in range(RUN_COUNT):
     networks = [best_network]
 
@@ -301,3 +305,4 @@ for i in range(RUN_COUNT):
     )
     best_network = networks[highest_score_index]
     torch.save(best_network.state_dict(), MODEL_PATH)
+    run(Player(), best_network)
