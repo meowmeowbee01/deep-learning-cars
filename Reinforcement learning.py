@@ -1,6 +1,5 @@
 import copy
 import math
-import os
 import sys
 import pygame
 import torch
@@ -36,19 +35,22 @@ HIDDEN_LAYER_SIZE = 64
 
 # training settings
 TIME_PER_RUN = 15  # seconds
-RUN_COUNT = 250  # an extra 0th run will always happen first
+BATCH_COUNT = 250  # an extra 0th batch will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
 PERTURBATION_SCALE = 0.03
 
 
-MODEL_PATH = "poging 3/poging 3 best attempt.pth"
+MODEL_PATH = "saved networks/Reinforcement learning.pth"
 SHOULD_RENDER = False
 
-# TODO 
+# TODO
 """
 code opruimen
+
+beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
+render functie aanpassen om compatibel te zijn met meerdere players
 
 Async -> grafische kaart -> meerdere runnen in batch
 belangrijk: kleurtjes (andere kleur voor record)
@@ -58,8 +60,9 @@ andere route maken
 
 render uit/aanknop op scherm?
 
-PERTURBATION_SCALE aanpassen?
+andere PERTURBATION_SCALE per network in een batch?
 """
+
 
 class Player:
     def __init__(self):
@@ -83,7 +86,7 @@ class Player:
         )
         self.rect = self.image.get_rect(center=self.pos)
 
-    def update(self, dt):
+    def update(self, deltaTime):
         # update direction
         self.direction += self.change_angle * STEERING_SPEED
 
@@ -172,8 +175,7 @@ class Player:
 
         for value in inputs:
             if value > 1 or value < 0:
-                print("inputs not normalized")
-                print(value)
+                raise Exception("inputs not normalized: " + value)
         return inputs
 
 
@@ -202,6 +204,7 @@ font = pygame.font.Font(None, 36)
 
 current_batch = 0
 
+
 def render(player):
     # clear previous screen
     screen.fill((127, 127, 127))
@@ -223,9 +226,7 @@ def render(player):
 
     # Render text (now text is on top of other elements)
     text = font.render(
-        f'Current Batch: {current_batch}',
-        True,
-        (255, 255, 255)  # Text color (white)
+        f"Current Batch: {current_batch}", True, (255, 255, 255)  # Text color (white)
     )
     text_rect = text.get_rect()
     text_rect.topleft = (10, 10)  # Position of the text on the screen
@@ -233,15 +234,14 @@ def render(player):
 
     # output render to display and update deltatime
     pygame.display.flip()
-    dt = clock.tick(FRAMES_PER_SECOND) / 1000  # milliseconds
+    deltaTime = clock.tick(FRAMES_PER_SECOND) / 1000  # milliseconds
 
-    return dt
-
+    return deltaTime
 
 
 def run(player, network, shouldRender=False):
     running = True
-    dt = 0
+    deltaTime = 0
     i = 0
 
     score = 0
@@ -253,7 +253,7 @@ def run(player, network, shouldRender=False):
                 sys.exit()
 
         # game logic
-        player.update(dt)
+        player.update(deltaTime)
         died = player.check_collision()
         running = not died
 
@@ -262,12 +262,12 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        if (not running):
-            if (player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910)):
+        if not running:
+            if player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910):
                 score = (player.pos.x * 5) + player.pos.y
             else:
                 score = (player.pos.x * 5) + SCREEN_HEIGHT - player.pos.y
-                if (player.pos.x > 910):
+                if player.pos.x > 910:
                     score += -(TIME_PER_RUN * FRAMES_PER_SECOND - i) / 5
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -282,7 +282,7 @@ def run(player, network, shouldRender=False):
 
         # rendering
         if shouldRender:
-            dt = render(player)
+            deltaTime = render(player)
     return score
 
 
@@ -326,10 +326,10 @@ print(
 )
 
 best_network = networks[highest_score_index]
-best_score =  scores[highest_score_index]
+best_score = scores[highest_score_index]
 last_batch_change = 0
 # perform all runs
-for i in range(RUN_COUNT):
+for i in range(BATCH_COUNT):
     networks = [best_network]
 
     # copy and perturbate the previous best
@@ -345,16 +345,17 @@ for i in range(RUN_COUNT):
         best_score = scores[highest_score_index]
         last_batch_change = i + 1
         run(Player(), best_network, True)
-    
+
     print("\033c", end="")
     print(
         "current batch: "
-        + str(i + 1) 
-        + "\nlast change: batch " + str(last_batch_change)      
+        + str(i + 1)
+        + "\nlast change: batch "
+        + str(last_batch_change)
         + "\npoints: "
         + str(scores[highest_score_index])
     )
     current_batch = i + 2
-    
+
     best_network = networks[highest_score_index]
     torch.save(best_network.state_dict(), MODEL_PATH)
