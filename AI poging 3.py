@@ -12,8 +12,8 @@ SPRITE_SCALING = 0.05
 SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "RL Tank"
-ACCELERATION = 0.1
-STEERING_SPEED = 0.1
+ACCELERATION = 0.2
+STEERING_SPEED = 0.25
 MIN_SPEED = 0
 MAX_SPEED = 10
 INITIAL_POS = 50, 50
@@ -229,7 +229,7 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        score = player.pos.x
+        score = player.pos.x + (player.pos.y / 5)
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
