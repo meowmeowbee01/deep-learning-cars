@@ -5,6 +5,7 @@ import sys
 import pygame
 import torch
 import torch.nn as nn
+import pygame.font
 
 # constants
 
@@ -26,6 +27,7 @@ WALLS = [
     pygame.Rect(600, 350, 20, 350),
     pygame.Rect(900, 0, 20, 350),
 ]
+TARGET = 1150, 50
 
 # hyperparameters
 INPUT_SIZE = 7  # speed, direction, 5 raycasts
@@ -33,26 +35,30 @@ OUTPUT_SIZE = 2  # acceleration, steering
 HIDDEN_LAYER_SIZE = 64
 
 # training settings
-TIME_PER_RUN = 10  # seconds
+TIME_PER_RUN = 15  # seconds
 RUN_COUNT = 250  # an extra 0th run will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALE = 0.02
+PERTURBATION_SCALE = 0.03
+
 
 MODEL_PATH = "poging 3/poging 3 best attempt.pth"
 SHOULD_RENDER = False
 
 # TODO 
 """
-Async -> grafische kaart
-meerdere runnen in batch
-belangrijk: kleurtjes
-beter scoresysteem -> afstand berekenen
+code opruimen
 
-langere route?
+Async -> grafische kaart -> meerdere runnen in batch
+belangrijk: kleurtjes (andere kleur voor record)
 
-PERTURBATION_SCALE aanpassen
+beter scoresysteem -> pathfinding
+andere route maken
+
+render uit/aanknop op scherm?
+
+PERTURBATION_SCALE aanpassen?
 """
 
 class Player:
@@ -191,6 +197,10 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 
+pygame.font.init()
+font = pygame.font.Font(None, 36)
+
+current_batch = 0
 
 def render(player):
     # clear previous screen
@@ -211,11 +221,22 @@ def render(player):
     )
     screen.blit(rotated_player, player.rect.topleft)
 
+    # Render text (now text is on top of other elements)
+    text = font.render(
+        f'Current Batch: {current_batch}',
+        True,
+        (255, 255, 255)  # Text color (white)
+    )
+    text_rect = text.get_rect()
+    text_rect.topleft = (10, 10)  # Position of the text on the screen
+    screen.blit(text, text_rect)
+
     # output render to display and update deltatime
     pygame.display.flip()
     dt = clock.tick(FRAMES_PER_SECOND) / 1000  # milliseconds
 
     return dt
+
 
 
 def run(player, network, shouldRender=False):
@@ -241,11 +262,13 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        if (player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910)):
-            score = player.pos.x + (player.pos.y / 5)
-        else:
-            score = player.pos.x + (SCREEN_HEIGHT / 5) - (player.pos.y / 5)
-
+        if (not running):
+            if (player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910)):
+                score = (player.pos.x * 5) + player.pos.y
+            else:
+                score = (player.pos.x * 5) + SCREEN_HEIGHT - player.pos.y
+                if (player.pos.x > 910):
+                    score += -(TIME_PER_RUN * FRAMES_PER_SECOND - i) / 5
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
 
@@ -322,6 +345,7 @@ for i in range(RUN_COUNT):
         best_score = scores[highest_score_index]
         last_batch_change = i + 1
         run(Player(), best_network, True)
+    
     print("\033c", end="")
     print(
         "current batch: "
@@ -330,6 +354,7 @@ for i in range(RUN_COUNT):
         + "\npoints: "
         + str(scores[highest_score_index])
     )
+    current_batch = i + 2
     
     best_network = networks[highest_score_index]
     torch.save(best_network.state_dict(), MODEL_PATH)
