@@ -27,6 +27,7 @@ WALLS = [
     pygame.Rect(900, 0, 20, 350),
 ]
 TARGET = 1150, 50
+TARGET_SIZE = 100
 
 # hyperparameters
 INPUT_SIZE = 7  # speed, direction, 5 raycasts
@@ -39,15 +40,17 @@ BATCH_COUNT = 250  # an extra 0th batch will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALE = 0.03
+PERTURBATION_SCALE = 0.01
 
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
-SHOULD_RENDER = False
+FONT_SIZE = 36
 
 # TODO
 """
 code opruimen
+
+target renderen
 
 beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
 render functie aanpassen om compatibel te zijn met meerdere players
@@ -61,7 +64,18 @@ andere route maken
 render uit/aanknop op scherm?
 
 andere PERTURBATION_SCALE per network in een batch?
+
+ipv random pertubations, meer nadenken over wat er veranderd moet worden: onthouden wat er al geprobeerd is (gradient descent?)
+
+experimenteren met hyperparameters: meer hidden layers, kleinere of grotere hidden layers, meer of minder raycasts
+experimenteren met training parameters: perturbation scale groter of kleiner, grotere of kleinere batches
 """
+
+
+def distance_between_2_points(p1, p2):
+    rel_vector = pygame.Vector2(p1 - p2)
+    distance = rel_vector.length()
+    return distance
 
 
 class Player:
@@ -77,8 +91,6 @@ class Player:
         self.pos = pygame.Vector2(INITIAL_POS)
         self.speed = 0
         self.direction = 0  # radians
-        self.change_angle = 0
-        self.acceleration = 0
         self.raycast_hits = []
 
         self.radius = math.sqrt(
@@ -86,9 +98,9 @@ class Player:
         )
         self.rect = self.image.get_rect(center=self.pos)
 
-    def update(self, deltaTime):
+    def update(self, deltaTime, change_angle=0, acceleration=0):
         # update direction
-        self.direction += self.change_angle * STEERING_SPEED
+        self.direction += change_angle * STEERING_SPEED
 
         # normalize direction to always be positive
         if self.direction <= 0:
@@ -98,7 +110,7 @@ class Player:
         self.direction = self.direction % (2 * math.pi)
 
         # update speed
-        self.speed += self.acceleration * ACCELERATION
+        self.speed += acceleration * ACCELERATION
 
         # cap speed
         self.speed = min(MAX_SPEED, self.speed)
@@ -158,14 +170,12 @@ class Player:
 
     def get_inputs(self):
         inputs = [
-            self.speed / MAX_SPEED,  # Normalize speed to [0, 1]
+            (self.speed - MIN_SPEED)
+            / (MAX_SPEED - MIN_SPEED),  # Normalize speed to [0, 1]
             self.direction / (2 * math.pi),  # Normalize direction to [0, 1]
         ]
         for hit in self.raycast_hits:
-            # calculate relative position of hit
-            rel_pos = pygame.Vector2(self.pos - hit)
-            # then calculate length
-            distance = rel_pos.length()
+            distance = distance_between_2_points(self.pos, hit)
             # then squach to maximum 1
             squached_distance = math.tanh(
                 distance / ((SCREEN_HEIGHT + SCREEN_WIDTH) / 2)
@@ -173,9 +183,10 @@ class Player:
             # add to inputs
             inputs.append(squached_distance)
 
-        for value in inputs:
-            if value > 1 or value < 0:
-                raise Exception("inputs not normalized: " + value)
+        # check for inputs outside of [0, 1]
+        # for value in inputs:
+        #     if value > 1 or value < 0:
+        #         raise Exception("inputs not normalized: " + value)
         return inputs
 
 
@@ -200,33 +211,40 @@ pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 
 pygame.font.init()
-font = pygame.font.Font(None, 36)
-
-current_batch = 0
+font = pygame.font.Font(None, FONT_SIZE)
 
 
-def render(player):
+def render(players, walls, should_raycasts, batch):
     # clear previous screen
     screen.fill((127, 127, 127))
 
+    # render target
+    pygame.draw.circle(screen, (0, 0, 127), TARGET, TARGET_SIZE)
+
     # render walls
-    for wall in WALLS:
+    for wall in walls:
         pygame.draw.rect(screen, (0, 0, 0), wall)
 
-    # render raycast
-    for hit in player.raycast_hits:
-        pygame.draw.circle(screen, (0, 127, 0), hit, 5)
-        pygame.draw.line(screen, (127, 0, 0), player.pos, (int(hit[0]), int(hit[1])))
+    p_index = 0
+    for player in players:
+        # render raycast
+        if should_raycasts[p_index]:
+            for hit in player.raycast_hits:
+                pygame.draw.circle(screen, (0, 127, 0), hit, 5)
+                pygame.draw.line(
+                    screen, (127, 0, 0), player.pos, (int(hit[0]), int(hit[1]))
+                )
 
-    # render player
-    rotated_player = pygame.transform.rotate(
-        player.image, math.degrees(player.direction)
-    )
-    screen.blit(rotated_player, player.rect.topleft)
+        # render player
+        rotated_player = pygame.transform.rotate(
+            player.image, math.degrees(player.direction)
+        )
+        screen.blit(rotated_player, player.rect.topleft)
+        p_index += 1
 
-    # Render text (now text is on top of other elements)
+    # Render text
     text = font.render(
-        f"Current Batch: {current_batch}", True, (255, 255, 255)  # Text color (white)
+        f"Current Batch: {batch}", True, (255, 255, 255)  # Text color (white)
     )
     text_rect = text.get_rect()
     text_rect.topleft = (10, 10)  # Position of the text on the screen
@@ -239,36 +257,41 @@ def render(player):
     return deltaTime
 
 
-def run(player, network, shouldRender=False):
+def run(player, network, batch, shouldRender=False):
     running = True
     deltaTime = 0
-    i = 0
-
+    step = 0  # aka frame
     score = 0
+    acceleration = 0
+    change_angle = 0
+
     while running:
-        # event handling
+        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
 
         # game logic
-        player.update(deltaTime)
+        player.update(deltaTime, change_angle, acceleration)
         died = player.check_collision()
         running = not died
 
         # stop after too much time
-        if i > TIME_PER_RUN * FRAMES_PER_SECOND:
+        if step > TIME_PER_RUN * FRAMES_PER_SECOND:
             running = False
-        i += 1
+        step += 1
 
+        # calculate score (map specific)
         if not running:
             if player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910):
                 score = (player.pos.x * 5) + player.pos.y
             else:
                 score = (player.pos.x * 5) + SCREEN_HEIGHT - player.pos.y
-                if player.pos.x > 910:
-                    score += -(TIME_PER_RUN * FRAMES_PER_SECOND - i) / 5
+            # bonus score: faster to target -> more points
+            if distance_between_2_points(player.pos, TARGET) < TARGET_SIZE:
+                score += (TIME_PER_RUN * FRAMES_PER_SECOND - step) / 5
+
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
 
@@ -277,12 +300,13 @@ def run(player, network, shouldRender=False):
 
         # Extract steering direction and acceleration from the outputs
         # and squach to [-1, 1]
-        player.change_angle = torch.tanh(outputs[0]).item()
-        player.acceleration = torch.tanh(outputs[1]).item()
+        change_angle = torch.tanh(outputs[0]).item()
+        acceleration = torch.tanh(outputs[1]).item()
 
+        # again, this is the most nested loop so rendering is difficult to put elsewhere
         # rendering
         if shouldRender:
-            deltaTime = render(player)
+            deltaTime = render([player], WALLS, [True], batch)
     return score
 
 
@@ -294,42 +318,43 @@ def perturb_model(model, perturbation_scale):
     return returnable_model
 
 
-def train_batch(networks):
+def train_batch(networks, batch):
     scores = []
     for network in networks:
-        score = run(Player(), network, SHOULD_RENDER)
+        score = run(Player(), network, batch, False)
         scores.append(score)
     return scores
 
 
 # load previous best from file
-network = Network()
+networks = []
 try:
+    network = Network()
     network.load_state_dict(torch.load(MODEL_PATH))
     networks = [network]
+    # render the previous best
+    run(Player(), network, -1, True)
 except:
-    networks = []
+    pass
 
-# run 0
+# batch 0
 for i in range(BATCH_SIZE - 1):
     networks.append(Network())
 
-scores = train_batch(networks)
+scores = train_batch(networks, 0)
 
-highest_score_index = scores.index(max(scores))
-print(
-    "batch 0: best run: "
-    + str(highest_score_index + 1)
-    + " with "
-    + str(scores[highest_score_index])
-    + " points"
-)
+best_score = max(scores)
+highest_score_index = scores.index(best_score)
+# clear terminal
+print("\033c", end="")
+# print info on current batch
+print("current batch: 0\nlast change: n/a\npoints: " + str(best_score))
 
 best_network = networks[highest_score_index]
-best_score = scores[highest_score_index]
 last_batch_change = 0
+
 # perform all runs
-for i in range(BATCH_COUNT):
+for batch in range(BATCH_COUNT):
     networks = [best_network]
 
     # copy and perturbate the previous best
@@ -337,25 +362,31 @@ for i in range(BATCH_COUNT):
         network = perturb_model(best_network, PERTURBATION_SCALE)
         networks.append(network)
 
-    # train new generation
-    scores = train_batch(networks)
+    # train new batch
+    scores = train_batch(networks, batch + 1)
 
     highest_score_index = scores.index(max(scores))
     if scores[highest_score_index] > best_score:
         best_score = scores[highest_score_index]
-        last_batch_change = i + 1
-        run(Player(), best_network, True)
+        last_batch_change = batch + 1
 
+        print("\033[92mnew best, look at game window to see\033[0m")
+
+        # render the new best
+        run(Player(), best_network, batch + 1, True)
+
+        # save best network to file
+        best_network = networks[highest_score_index]
+        torch.save(best_network.state_dict(), MODEL_PATH)
+
+    # clear terminal
     print("\033c", end="")
+    # print info on current batch
     print(
         "current batch: "
-        + str(i + 1)
+        + str(batch + 1)
         + "\nlast change: batch "
         + str(last_batch_change)
         + "\npoints: "
-        + str(scores[highest_score_index])
+        + str(best_score)
     )
-    current_batch = i + 2
-
-    best_network = networks[highest_score_index]
-    torch.save(best_network.state_dict(), MODEL_PATH)
