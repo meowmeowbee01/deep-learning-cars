@@ -51,6 +51,8 @@ belangrijk: kleurtjes
 beter scoresysteem -> afstand berekenen
 
 langere route?
+
+PERTURBATION_SCALE aanpassen
 """
 
 class Player:
@@ -239,7 +241,10 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        score = player.pos.x + (-player.pos.y / 5)
+        if (player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910)):
+            score = player.pos.x + (player.pos.y / 5)
+        else:
+            score = player.pos.x + (SCREEN_HEIGHT / 5) - (player.pos.y / 5)
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
