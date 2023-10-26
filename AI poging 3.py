@@ -1,5 +1,6 @@
 import copy
 import math
+import os
 import sys
 import pygame
 import torch
@@ -33,15 +34,24 @@ HIDDEN_LAYER_SIZE = 64
 
 # training settings
 TIME_PER_RUN = 10  # seconds
-RUN_COUNT = 100  # an extra 0th run will always happen first
+RUN_COUNT = 250  # an extra 0th run will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALE = 0.01
+PERTURBATION_SCALE = 0.02
 
 MODEL_PATH = "poging 3/poging 3 best attempt.pth"
 SHOULD_RENDER = False
 
+# TODO 
+"""
+Async -> grafische kaart
+meerdere runnen in batch
+belangrijk: kleurtjes
+beter scoresysteem -> afstand berekenen
+
+langere route?
+"""
 
 class Player:
     def __init__(self):
@@ -229,7 +239,7 @@ def run(player, network, shouldRender=False):
             running = False
         i += 1
 
-        score = player.pos.x + (player.pos.y / 5)
+        score = player.pos.x + (-player.pos.y / 5)
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -288,7 +298,8 @@ print(
 )
 
 best_network = networks[highest_score_index]
-
+best_score =  scores[highest_score_index]
+last_batch_change = 0
 # perform all runs
 for i in range(RUN_COUNT):
     networks = [best_network]
@@ -302,15 +313,18 @@ for i in range(RUN_COUNT):
     scores = train_batch(networks)
 
     highest_score_index = scores.index(max(scores))
+    if scores[highest_score_index] > best_score:
+        best_score = scores[highest_score_index]
+        last_batch_change = i + 1
+        run(Player(), best_network, True)
+    print("\033c", end="")
     print(
-        "batch "
-        + str(i + 1)
-        + ": best run: "
-        + str(highest_score_index + 1)
-        + " with "
+        "current batch: "
+        + str(i + 1) 
+        + "\nlast change: batch " + str(last_batch_change)      
+        + "\npoints: "
         + str(scores[highest_score_index])
-        + " points"
     )
+    
     best_network = networks[highest_score_index]
     torch.save(best_network.state_dict(), MODEL_PATH)
-    # run(Player(), best_network, True)
