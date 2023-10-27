@@ -49,20 +49,22 @@ FONT_SIZE = 36
 
 # TODO
 """
-code opruimen
+belangrijke todos:
+    score systeem verbeteren:
+        checkpoint systeem
+        A* payhfinding
+    async maken:
+        render en input handling op een andere manier regelen
+        meerdere runnen in een batch
+        met de GPU werken
 
 beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
-render functie aanpassen om compatibel te zijn met meerdere players
 
-Async -> grafische kaart -> meerdere runnen in batch
 belangrijk: kleurtjes (andere kleur voor record)
 
-beter scoresysteem -> pathfinding
 andere route maken
 
-render uit/aanknop op scherm?
-
-andere PERTURBATION_SCALE per network in een batch?
+render uit/aanknop op scherm/ een bepaalde toets om renderen te toggelen?
 
 ipv random pertubations, meer nadenken over wat er veranderd moet worden: onthouden wat er al geprobeerd is (gradient descent?)
 
