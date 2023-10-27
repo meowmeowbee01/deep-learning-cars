@@ -14,9 +14,9 @@ SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.2
-STEERING_SPEED = 0.25
+STEERING_SPEED = 0.1
 MIN_SPEED = 0
-MAX_SPEED = 10
+MAX_SPEED = 5
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
@@ -32,15 +32,16 @@ TARGET_SIZE = 100
 # hyperparameters
 INPUT_SIZE = 7  # speed, direction, 5 raycasts
 OUTPUT_SIZE = 2  # acceleration, steering
-HIDDEN_LAYER_SIZE = 64
+FIRST_HIDDEN_LAYER_SIZE = 8
+SECOND_HIDDEN_LAYER_SIZE = 8
 
 # training settings
-TIME_PER_RUN = 15  # seconds
-BATCH_COUNT = 250  # an extra 0th batch will always happen first
+TIME_PER_RUN = 10  # seconds
+BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALE = 0.01
+PERTURBATION_SCALES = [1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.001, 0.0005]
 
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
@@ -49,8 +50,6 @@ FONT_SIZE = 36
 # TODO
 """
 code opruimen
-
-target renderen
 
 beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
 render functie aanpassen om compatibel te zijn met meerdere players
@@ -193,14 +192,17 @@ class Player:
 class Network(nn.Module):
     def __init__(self):
         super(Network, self).__init__()
-        self.fc1 = nn.Linear(INPUT_SIZE, HIDDEN_LAYER_SIZE)
+        self.fc1 = nn.Linear(INPUT_SIZE, FIRST_HIDDEN_LAYER_SIZE)
+        self.fc2 = nn.Linear(FIRST_HIDDEN_LAYER_SIZE, SECOND_HIDDEN_LAYER_SIZE)
+        self.fc3 = nn.Linear(SECOND_HIDDEN_LAYER_SIZE, OUTPUT_SIZE)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(HIDDEN_LAYER_SIZE, OUTPUT_SIZE)
 
     def forward(self, x):
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
         return x
 
 
@@ -359,7 +361,7 @@ for batch in range(BATCH_COUNT):
 
     # copy and perturbate the previous best
     for j in range(BATCH_SIZE - 1):
-        network = perturb_model(best_network, PERTURBATION_SCALE)
+        network = perturb_model(best_network, PERTURBATION_SCALES[j])
         networks.append(network)
 
     # train new batch
