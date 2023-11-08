@@ -40,8 +40,8 @@ TIME_PER_RUN = 10  # seconds
 BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # the first position in a batch is reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
-BATCH_SIZE = 8
-PERTURBATION_SCALES = [0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001, 0.00005, 0.000025, 0.00001]
+BATCH_SIZE = 16
+PERTURBATION_SCALES = [0.5, 0.1, 0.05, 0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001, 0.00005, 0.000025, 0.00001, 0.000005, 0.0000025, 0.000001]
 # the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
@@ -266,6 +266,22 @@ def render(players, walls, should_raycasts, batch):
     pygame.display.flip()
     clock.tick(FRAMES_PER_SECOND)
 
+def calculate_score(x, y, step, hit_finish):
+    if x < 310:
+        score = x + y
+    elif x < 610:
+        score = x + SCREEN_HEIGHT - y + 1000
+    elif x < 910:
+        score = x + y + 2000
+    else:
+        score = SCREEN_HEIGHT - y + 5000
+
+    # bonus score: faster to target -> more points
+    if hit_finish:
+        score += TIME_PER_RUN * FRAMES_PER_SECOND - step
+
+    return score
+
 
 def run(player, network, pos_in_batch):
     running = True
@@ -287,21 +303,9 @@ def run(player, network, pos_in_batch):
         if step > TIME_PER_RUN * FRAMES_PER_SECOND:
             running = False
         step += 1
-
-        # calculate score (map specific)
-        if not running:
-            if player.pos.x < 310:
-                score = player.pos.x + player.pos.y
-            elif player.pos.x < 610:
-                score = player.pos.x + SCREEN_HEIGHT - player.pos.y + 1000
-            elif player.pos.x < 910:
-                score = player.pos.x + player.pos.y + 2000
-            else:
-                score = SCREEN_HEIGHT - player.pos.y + 5000
-
-            # bonus score: faster to target -> more points
-            if player.rect.colliderect(TARGET):
-                score += TIME_PER_RUN * FRAMES_PER_SECOND - step
+        
+        if died:
+            score = calculate_score(player.pos.x, player.pos.y, step, player.rect.colliderect(TARGET))
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -315,7 +319,7 @@ def run(player, network, pos_in_batch):
         acceleration = torch.tanh(outputs[1]).item()
     # render a red circle on death location
     if RENDER_DEATHS:
-        pygame.draw.circle(screen, (((pos_in_batch + 1) * 32) - 1, 0, 0), player.pos, 3)
+        pygame.draw.circle(screen, (((pos_in_batch + 1) * 16) - 1, 0, 0), player.pos, 3)
     return score
 
 
