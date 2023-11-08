@@ -5,7 +5,7 @@ import pygame
 import torch
 import torch.nn as nn
 import pygame.font
-
+import threading
 
 # constants
 
@@ -418,8 +418,10 @@ scores = train_batch(networks)
 best_score = max(scores)
 highest_score_index = scores.index(best_score)
 
-render_run(Player(), networks[highest_score_index], "0")
-print("test")
+render_run_thread = threading.Thread(
+    target=render_run, args=(Player(), networks[highest_score_index], "0")
+)
+render_run_thread.start()
 
 # clear terminal
 print("\033c", end="")
@@ -456,7 +458,11 @@ for batch in range(BATCH_COUNT):
         # save best network to file
         torch.save(best_network.state_dict(), MODEL_PATH)
         # render the new best
-        render_run(Player(), best_network, batch + 1)
+        render_run_thread.join()
+        render_run_thread = threading.Thread(
+            target=render_run, args=(Player(), best_network, batch + 1)
+        )
+        render_run_thread.start()
 
     # clear terminal
     print("\033c", end="")
