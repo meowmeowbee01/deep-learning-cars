@@ -25,10 +25,8 @@ WALLS = [
     pygame.Rect(300, 0, 20, 350),
     pygame.Rect(600, 350, 20, 350),
     pygame.Rect(900, 0, 20, 350),
-
-    
 ]
-TARGET = pygame.Rect(910, 0, 300, 30),
+TARGET = (pygame.Rect(910, 0, 300, 30),)
 
 
 # hyperparameters
@@ -40,14 +38,15 @@ SECOND_HIDDEN_LAYER_SIZE = 8
 # training settings
 TIME_PER_RUN = 10  # seconds
 BATCH_COUNT = 1000  # an extra 0th batch will always happen first
-# the first position in a batch is be reserved for the previous best
+# the first position in a batch is reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALES = [1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.01, 0.005]
-
+PERTURBATION_SCALES = [0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001, 0.00005, 0.000025, 0.00001]
+# the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
+RENDER_DEATHS = True
 
 # TODO
 """
@@ -101,7 +100,7 @@ class Player:
         )
         self.rect = self.image.get_rect(center=self.pos)
 
-    def update(self, deltaTime, change_angle=0, acceleration=0):
+    def update(self, change_angle=0, acceleration=0):
         # update direction
         self.direction += change_angle * STEERING_SPEED
 
@@ -220,6 +219,13 @@ pygame.font.init()
 font = pygame.font.Font(None, FONT_SIZE)
 
 
+def event_handling():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+
 def render(players, walls, should_raycasts, batch):
     # clear previous screen
     screen.fill((127, 127, 127))
@@ -256,16 +262,13 @@ def render(players, walls, should_raycasts, batch):
     text_rect.topleft = (10, 10)  # Position of the text on the screen
     screen.blit(text, text_rect)
 
-    # output render to display and update deltatime
+    # output render to display
     pygame.display.flip()
-    deltaTime = clock.tick(FRAMES_PER_SECOND) / 1000  # milliseconds
-
-    return deltaTime
+    clock.tick(FRAMES_PER_SECOND)
 
 
-def run(player, network, batch, shouldRender=False):
+def run(player, network, pos_in_batch):
     running = True
-    deltaTime = 0
     step = 0  # aka frame
     score = 0
     acceleration = 0
@@ -273,13 +276,10 @@ def run(player, network, batch, shouldRender=False):
 
     while running:
         # this loop is the most nested loop so we do event handling here, despite it seeming out of place
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+        event_handling()
 
         # game logic
-        player.update(deltaTime, change_angle, acceleration)
+        player.update(change_angle, acceleration)
         died = player.check_collision()
         running = not died
 
@@ -301,7 +301,43 @@ def run(player, network, batch, shouldRender=False):
 
             # bonus score: faster to target -> more points
             if player.rect.colliderect(TARGET):
-                score += (TIME_PER_RUN * FRAMES_PER_SECOND - step)
+                score += TIME_PER_RUN * FRAMES_PER_SECOND - step
+
+        # Get inputs for the neural network
+        inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
+
+        # Forward pass
+        outputs = network(inputs)
+
+        # Extract steering direction and acceleration from the outputs
+        # and squach to [-1, 1]
+        change_angle = torch.tanh(outputs[0]).item()
+        acceleration = torch.tanh(outputs[1]).item()
+    # render a red circle on death location
+    if RENDER_DEATHS:
+        pygame.draw.circle(screen, (((pos_in_batch + 1) * 32) - 1, 0, 0), player.pos, 3)
+    return score
+
+
+def render_run(player, network, batch):
+    running = True
+    step = 0  # aka frame
+    acceleration = 0
+    change_angle = 0
+
+    while running:
+        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
+        event_handling()
+
+        # game logic
+        player.update(change_angle, acceleration)
+        died = player.check_collision()
+        running = not died
+
+        # stop after too much time
+        if step > TIME_PER_RUN * FRAMES_PER_SECOND:
+            running = False
+        step += 1
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -314,11 +350,8 @@ def run(player, network, batch, shouldRender=False):
         change_angle = torch.tanh(outputs[0]).item()
         acceleration = torch.tanh(outputs[1]).item()
 
-        # again, this is the most nested loop so rendering is difficult to put elsewhere
         # rendering
-        if shouldRender:
-            deltaTime = render([player], WALLS, [True], batch)
-    return score
+        render([player], WALLS, [True], batch)
 
 
 def perturb_model(model, perturbation_scale):
@@ -329,40 +362,50 @@ def perturb_model(model, perturbation_scale):
     return returnable_model
 
 
-def train_batch(networks, batch):
+def train_batch(networks):
     scores = []
+    i = 0
     for network in networks:
-        score = run(Player(), network, batch, False)
+        score = run(Player(), network, i)
         scores.append(score)
+        if RENDER_DEATHS:
+            pygame.display.flip()
+        i += 1
     return scores
 
 
+# render without player
+render([], WALLS, False, "0")
+
 # load previous best from file
+pulled_from_file = False
 networks = []
 try:
     network = Network()
     network.load_state_dict(torch.load(MODEL_PATH))
     networks = [network]
-    # render the previous best
-    run(Player(), network, -1, True)
+    pulled_from_file = True
 except:
     pass
 
 # batch 0
-for i in range(BATCH_SIZE - 1):
+for i in range(BATCH_SIZE - int(pulled_from_file)):
     networks.append(Network())
 
-scores = train_batch(networks, 0)
+scores = train_batch(networks)
 
 best_score = max(scores)
 highest_score_index = scores.index(best_score)
+
+render_run(Player(), networks[highest_score_index], "0")
+
 # clear terminal
 print("\033c", end="")
 # print info on current batch
 print("current batch: 0\nlast change: n/a\npoints: " + str(best_score))
 
 best_network = networks[highest_score_index]
-last_batch_change = 0
+last_batch_change = "n/a"
 
 # perform all runs
 for batch in range(BATCH_COUNT):
@@ -374,17 +417,21 @@ for batch in range(BATCH_COUNT):
         networks.append(network)
 
     # train new batch
-    scores = train_batch(networks, batch + 1)
+    scores = train_batch(networks)
 
     highest_score_index = scores.index(max(scores))
     if scores[highest_score_index] > best_score:
         best_score = scores[highest_score_index]
-        last_batch_change = batch + 1
+        last_batch_change = "batch " + str(batch + 1)
 
-        print("\033[92mnew best, look at game window to see\033[0m")
+        print(
+            "\033[92mnew best, look at game window to see, index: "
+            + str(highest_score_index)
+            + "\033[0m"
+        )
 
         # render the new best
-        run(Player(), best_network, batch + 1, True)
+        render_run(Player(), best_network, batch + 1)
 
         # save best network to file
         best_network = networks[highest_score_index]
@@ -396,8 +443,8 @@ for batch in range(BATCH_COUNT):
     print(
         "current batch: "
         + str(batch + 1)
-        + "\nlast change: batch "
-        + str(last_batch_change)
+        + "\nlast change: "
+        + last_batch_change
         + "\npoints: "
         + str(best_score)
     )
