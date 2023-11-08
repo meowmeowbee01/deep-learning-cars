@@ -16,7 +16,7 @@ SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.2
 STEERING_SPEED = 0.1
 MIN_SPEED = 0
-MAX_SPEED = 100
+MAX_SPEED = 10
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
@@ -25,9 +25,11 @@ WALLS = [
     pygame.Rect(300, 0, 20, 350),
     pygame.Rect(600, 350, 20, 350),
     pygame.Rect(900, 0, 20, 350),
+
+    
 ]
-TARGET = 1150, 50
-TARGET_SIZE = 100
+TARGET = pygame.Rect(910, 0, 300, 30),
+
 
 # hyperparameters
 INPUT_SIZE = 7  # speed, direction, 5 raycasts
@@ -223,7 +225,7 @@ def render(players, walls, should_raycasts, batch):
     screen.fill((127, 127, 127))
 
     # render target
-    pygame.draw.circle(screen, (0, 0, 127), TARGET, TARGET_SIZE)
+    pygame.draw.rect(screen, (255, 255, 255), TARGET)
 
     # render walls
     for wall in walls:
@@ -288,12 +290,17 @@ def run(player, network, batch, shouldRender=False):
 
         # calculate score (map specific)
         if not running:
-            if player.pos.x < 310 or (player.pos.x > 610 and player.pos.x < 910):
-                score = (player.pos.x * 5) + player.pos.y
+            if player.pos.x < 310:
+                score = player.pos.x + player.pos.y
+            elif player.pos.x < 610:
+                score = player.pos.x + SCREEN_HEIGHT - player.pos.y + 1000
+            elif player.pos.x < 910:
+                score = player.pos.x + player.pos.y + 2000
             else:
-                score = (player.pos.x * 5) + SCREEN_HEIGHT - player.pos.y
+                score = SCREEN_HEIGHT - player.pos.y + 5000
+
             # bonus score: faster to target -> more points
-            if distance_between_2_points(player.pos, TARGET) < TARGET_SIZE:
+            if player.rect.colliderect(TARGET):
                 score += (TIME_PER_RUN * FRAMES_PER_SECOND - step) / 5
 
         # Get inputs for the neural network
