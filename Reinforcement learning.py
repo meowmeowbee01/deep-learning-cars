@@ -16,7 +16,7 @@ SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.2
 STEERING_SPEED = 0.1
 MIN_SPEED = 0
-MAX_SPEED = 10
+MAX_SPEED = 100
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
@@ -43,7 +43,7 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # the first position in a batch is be reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 8
-PERTURBATION_SCALES = [1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.001, 0.0005]
+PERTURBATION_SCALES = [1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.01, 0.005]
 
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
@@ -225,7 +225,7 @@ def render(players, walls, should_raycasts, batch):
     screen.fill((127, 127, 127))
 
     # render target
-    pygame.draw.rect(screen, (255, 255, 255), TARGET)
+    pygame.draw.rect(screen, (255, 64, 128), TARGET)
 
     # render walls
     for wall in walls:
@@ -301,7 +301,7 @@ def run(player, network, batch, shouldRender=False):
 
             # bonus score: faster to target -> more points
             if player.rect.colliderect(TARGET):
-                score += (TIME_PER_RUN * FRAMES_PER_SECOND - step) / 5
+                score += (TIME_PER_RUN * FRAMES_PER_SECOND - step)
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
