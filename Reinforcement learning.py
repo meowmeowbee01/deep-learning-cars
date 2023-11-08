@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import pygame.font
 
+
 # constants
 
 # game settings
@@ -41,12 +42,29 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # the first position in a batch is reserved for the previous best
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 16
-PERTURBATION_SCALES = [0.5, 0.1, 0.05, 0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001, 0.00005, 0.000025, 0.00001, 0.000005, 0.0000025, 0.000001]
+PERTURBATION_SCALES = [
+    2.5e-2,
+    1e-2,
+    5e-3,
+    2.5e-3,
+    1e-3,
+    1e-3,
+    5e-4,
+    5e-4,
+    2.5e-4,
+    2.5e-4,
+    1e-4,
+    1e-4,
+    5e-5,
+    2.5e-5,
+    1e-5,
+    5e-6,
+]
 # the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
-RENDER_DEATHS = True
+RENDER_DEATHS = False
 
 # TODO
 """
@@ -266,6 +284,7 @@ def render(players, walls, should_raycasts, batch):
     pygame.display.flip()
     clock.tick(FRAMES_PER_SECOND)
 
+
 def calculate_score(x, y, step, hit_finish):
     if x < 310:
         score = x + y
@@ -303,9 +322,11 @@ def run(player, network, pos_in_batch):
         if step > TIME_PER_RUN * FRAMES_PER_SECOND:
             running = False
         step += 1
-        
+
         if died:
-            score = calculate_score(player.pos.x, player.pos.y, step, player.rect.colliderect(TARGET))
+            score = calculate_score(
+                player.pos.x, player.pos.y, step, player.rect.colliderect(TARGET)
+            )
 
         # Get inputs for the neural network
         inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
@@ -330,13 +351,9 @@ def render_run(player, network, batch):
     change_angle = 0
 
     while running:
-        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
-        event_handling()
-
         # game logic
         player.update(change_angle, acceleration)
-        died = player.check_collision()
-        running = not died
+        running = not player.check_collision()
 
         # stop after too much time
         if step > TIME_PER_RUN * FRAMES_PER_SECOND:
@@ -372,14 +389,14 @@ def train_batch(networks):
     for network in networks:
         score = run(Player(), network, i)
         scores.append(score)
-        if RENDER_DEATHS:
-            pygame.display.flip()
         i += 1
+    if RENDER_DEATHS:
+        pygame.display.flip()
     return scores
 
 
 # render without player
-render([], WALLS, False, "0")
+render([], WALLS, [], "0")
 
 # load previous best from file
 pulled_from_file = False
@@ -402,6 +419,7 @@ best_score = max(scores)
 highest_score_index = scores.index(best_score)
 
 render_run(Player(), networks[highest_score_index], "0")
+print("test")
 
 # clear terminal
 print("\033c", end="")
@@ -434,12 +452,11 @@ for batch in range(BATCH_COUNT):
             + "\033[0m"
         )
 
+        best_network = networks[highest_score_index]
+        # save best network to file
+        torch.save(best_network.state_dict(), MODEL_PATH)
         # render the new best
         render_run(Player(), best_network, batch + 1)
-
-        # save best network to file
-        best_network = networks[highest_score_index]
-        torch.save(best_network.state_dict(), MODEL_PATH)
 
     # clear terminal
     print("\033c", end="")
