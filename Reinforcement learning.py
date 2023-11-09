@@ -28,7 +28,7 @@ WALLS = [
     pygame.Rect(600, 350, 20, 350),
     pygame.Rect(900, 0, 20, 350),
 ]
-TARGET = (pygame.Rect(910, 0, 300, 30),)
+TARGET = pygame.Rect(910, 0, 300, 30)
 
 
 # hyperparameters
@@ -44,28 +44,28 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 16
 PERTURBATION_SCALES = [
-    2.5e-2,
-    1e-2,
-    5e-3,
-    2.5e-3,
-    1e-3,
-    1e-3,
-    5e-4,
-    5e-4,
-    2.5e-4,
-    2.5e-4,
-    1e-4,
-    1e-4,
-    5e-5,
-    2.5e-5,
-    1e-5,
-    5e-6,
+    1, 
+    0.5, 
+    0.5,
+    0.375,
+    0.25,
+    0.25, 
+    0.1, 
+    0.1, 
+    0.05,
+    0.05, 
+    0.025,
+    0.025, 
+    0.01, 
+    0.01, 
+    0.005, 
+    0.005
 ]
 # the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
-RENDER_DEATHS = False
+RENDER_DEATHS = True
 
 # TODO
 """
@@ -244,10 +244,18 @@ def event_handling():
             pygame.quit()
             sys.exit()
 
+def render_text(batch):
+    pygame.draw.rect(screen, (158, 158, 232), pygame.Rect(0, 0, 300, 40))
+    text = font.render(
+        f"Current Batch: {batch}", True, (255, 255, 255)  # Text color (white)
+    )
+    text_rect = text.get_rect()
+    text_rect.topleft = (10, 10)  # Position of the text on the screen
+    screen.blit(text, text_rect)
 
 def render(players, walls, should_raycasts, batch):
     # clear previous screen
-    screen.fill((127, 127, 127))
+    screen.fill((200, 200, 255))
 
     # render target
     pygame.draw.rect(screen, (255, 64, 128), TARGET)
@@ -274,12 +282,7 @@ def render(players, walls, should_raycasts, batch):
         p_index += 1
 
     # Render text
-    text = font.render(
-        f"Current Batch: {batch}", True, (255, 255, 255)  # Text color (white)
-    )
-    text_rect = text.get_rect()
-    text_rect.topleft = (10, 10)  # Position of the text on the screen
-    screen.blit(text, text_rect)
+    render_text(batch)
 
     # output render to display
     pygame.display.flip()
@@ -396,7 +399,7 @@ def extract_and_sort_values(data_list):
         returnable.append(data_dict[i])
     return returnable
 
-def train_batch(networks):
+def train_batch(networks, current_batch):
     scores = []
     threads = []
     score_queue = Queue()
@@ -410,7 +413,8 @@ def train_batch(networks):
         scores.append(score_queue.get())
     scores = extract_and_sort_values(scores)
     if RENDER_DEATHS:
-        pygame.display.flip()
+        render_text(current_batch)
+        pygame.display.flip()       
     return scores
 
 
@@ -432,7 +436,7 @@ except:
 for i in range(BATCH_SIZE - int(pulled_from_file)):
     networks.append(Network())
 
-scores = train_batch(networks)
+scores = train_batch(networks, 0)
 
 best_score = max(scores)
 highest_score_index = scores.index(best_score)
@@ -461,7 +465,7 @@ for batch in range(BATCH_COUNT):
         networks.append(network)
 
     # train new batch
-    scores = train_batch(networks)
+    scores = train_batch(networks, batch)
 
     highest_score_index = scores.index(max(scores))
     if scores[highest_score_index] > best_score:
