@@ -1,7 +1,6 @@
 import copy
 import math
 import sys
-import time
 import pygame
 import torch
 import torch.nn as nn
@@ -17,7 +16,7 @@ SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 800
 SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.1
-STEERING_SPEED = 0.05
+STEERING_SPEED = 0.1
 MIN_SPEED = 0
 MAX_SPEED = 100
 INITIAL_POS = 50, 50
@@ -66,16 +65,16 @@ PERTURBATION_SCALES = [
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
-RENDER_DEATHS = False
-RENDER_HITBOX = False
-RENDER_RAYCASTS = False
+render_deaths = False
+render_hitbox = False
+render_raycasts = False
 
 # TODO
 """
 belangrijke todos:
     score systeem verbeteren:
         checkpoint systeem
-        A* payhfinding
+        A* pathfinding
     met de GPU werken
     beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
 
@@ -237,6 +236,16 @@ def event_handling():
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_d:
+                global render_deaths
+                render_deaths = not render_deaths
+            elif event.key == pygame.K_h:
+                global render_hitbox
+                render_hitbox = not render_hitbox
+            elif event.key == pygame.K_r:
+                global render_raycasts
+                render_raycasts = not render_raycasts
 
 
 def render_text(batch):
@@ -250,6 +259,7 @@ def render_text(batch):
 
 
 def render(players, walls, should_raycasts, batch):
+    event_handling()
     # clear previous screen
     screen.fill((200, 200, 255))
 
@@ -275,7 +285,7 @@ def render(players, walls, should_raycasts, batch):
             player.image, math.degrees(player.direction)
         )
         screen.blit(rotated_player, player.rect.topleft)
-        if RENDER_HITBOX:
+        if render_hitbox:
             pygame.draw.rect(screen, (0, 255, 0), player.rect, 1)
         p_index += 1
 
@@ -312,6 +322,7 @@ def run(player, network, pos_in_batch, score_queue):
     change_angle = 0
 
     while running:
+        event_handling()
         # game logic
         player.update(change_angle, acceleration)
         died = player.check_collision()
@@ -338,7 +349,7 @@ def run(player, network, pos_in_batch, score_queue):
         change_angle = torch.tanh(outputs[0]).item()
         acceleration = torch.tanh(outputs[1]).item()
     # render a red circle on death location
-    if RENDER_DEATHS:
+    if render_deaths:
         pygame.draw.circle(screen, (((pos_in_batch + 1) * 16) - 1, 0, 0), player.pos, 3)
     score_queue.put({pos_in_batch: score})
 
@@ -371,7 +382,7 @@ def render_run(player, network, batch):
         acceleration = torch.tanh(outputs[1]).item()
 
         # rendering
-        render([player], WALLS, [RENDER_RAYCASTS], batch)
+        render([player], WALLS, [render_raycasts], batch)
 
 
 def perturb_model(model, perturbation_scale):
