@@ -11,12 +11,12 @@ from queue import Queue
 # constants
 
 # game settings
-SPRITE_SCALING = 0.075
+SPRITE_SCALING = 0.05
 SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 800
 SCREEN_TITLE = "RL Tank"
-ACCELERATION = 0.1
-STEERING_SPEED = 0.1
+ACCELERATION = 0.05
+STEERING_SPEED = 0.25
 MIN_SPEED = 0
 MAX_SPEED = 100
 INITIAL_POS = 50, 50
@@ -44,11 +44,10 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 16
 PERTURBATION_SCALES = [
+    0.5,
     0.25,
     0.25,
     0.25,
-    0.25,
-    0.1,
     0.1,
     0.1,
     0.1,
@@ -59,13 +58,14 @@ PERTURBATION_SCALES = [
     0.01,
     0.01,
     0.005,
+    0.005,
     0.0025,
 ]
 # the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
-render_deaths = False
+render_deaths = True
 render_hitbox = False
 render_raycasts = False
 
@@ -77,6 +77,7 @@ belangrijke todos:
         A* pathfinding
     met de GPU werken
     beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
+    perturbation scales dynamisch aanpassen (hoe hoger de beste score, hoe lager de perturbation scales mogen zijn)
 
 andere route maken
 
@@ -236,16 +237,6 @@ def event_handling():
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_d:
-                global render_deaths
-                render_deaths = not render_deaths
-            elif event.key == pygame.K_h:
-                global render_hitbox
-                render_hitbox = not render_hitbox
-            elif event.key == pygame.K_r:
-                global render_raycasts
-                render_raycasts = not render_raycasts
 
 
 def render_text(batch):
@@ -259,7 +250,6 @@ def render_text(batch):
 
 
 def render(players, walls, should_raycasts, batch):
-    event_handling()
     # clear previous screen
     screen.fill((200, 200, 255))
 
@@ -322,7 +312,6 @@ def run(player, network, pos_in_batch, score_queue):
     change_angle = 0
 
     while running:
-        event_handling()
         # game logic
         player.update(change_angle, acceleration)
         died = player.check_collision()
@@ -333,7 +322,7 @@ def run(player, network, pos_in_batch, score_queue):
             running = False
         step += 1
 
-        if died:
+        if not running:
             score = calculate_score(
                 player.pos.x, player.pos.y, step, player.rect.colliderect(TARGET)
             )
@@ -483,13 +472,6 @@ for batch in range(BATCH_COUNT):
     if scores[highest_score_index] > best_score:
         best_score = scores[highest_score_index]
         last_batch_change = "batch " + str(batch + 1)
-
-        print(
-            "\033[92mnew best, look at game window to see, index: "
-            + str(highest_score_index)
-            + "\033[0m"
-        )
-
         best_network = networks[highest_score_index]
         # save best network to file
         torch.save(best_network.state_dict(), MODEL_PATH)
