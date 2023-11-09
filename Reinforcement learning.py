@@ -1,6 +1,7 @@
 import copy
 import math
 import sys
+import time
 import pygame
 import torch
 import torch.nn as nn
@@ -11,17 +12,17 @@ from queue import Queue
 # constants
 
 # game settings
-SPRITE_SCALING = 0.05
+SPRITE_SCALING = 0.075
 SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 800
 SCREEN_TITLE = "RL Tank"
-ACCELERATION = 0.2
-STEERING_SPEED = 0.1
+ACCELERATION = 0.1
+STEERING_SPEED = 0.05
 MIN_SPEED = 0
 MAX_SPEED = 100
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
-RAYCAST_STEP_SIZE = 5
+RAYCAST_STEP_SIZE = 10
 FRAMES_PER_SECOND = 60
 WALLS = [
     pygame.Rect(300, 0, 20, 600),
@@ -44,12 +45,12 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 16
 PERTURBATION_SCALES = [
-    0.5,
-    0.5,
-    0.5,
     0.25,
     0.25,
     0.25,
+    0.25,
+    0.1,
+    0.1,
     0.1,
     0.1,
     0.05,
@@ -59,7 +60,7 @@ PERTURBATION_SCALES = [
     0.01,
     0.01,
     0.005,
-    0.005,
+    0.0025,
 ]
 # the last value is never used
 
@@ -75,23 +76,14 @@ belangrijke todos:
     score systeem verbeteren:
         checkpoint systeem
         A* payhfinding
-    async maken:
-        render en input handling op een andere manier regelen
-        meerdere runnen in een batch
-        met de GPU werken
-
-beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
-
-belangrijk: kleurtjes (andere kleur voor record)
+    met de GPU werken
+    beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
 
 andere route maken
 
 render uit/aanknop op scherm/ een bepaalde toets om renderen te toggelen?
 
 ipv random pertubations, meer nadenken over wat er veranderd moet worden: onthouden wat er al geprobeerd is (gradient descent?)
-
-experimenteren met hyperparameters: meer hidden layers, kleinere of grotere hidden layers, meer of minder raycasts
-experimenteren met training parameters: perturbation scale groter of kleiner, grotere of kleinere batches
 """
 
 
@@ -422,9 +414,8 @@ def train_batch(networks, current_batch):
     while not score_queue.empty():
         scores.append(score_queue.get())
     scores = extract_and_sort_values(scores)
-    if RENDER_DEATHS:
-        render_text(current_batch)
-        pygame.display.flip()
+    render_text(current_batch)
+    pygame.display.flip()
     return scores
 
 
@@ -475,7 +466,7 @@ for batch in range(BATCH_COUNT):
         networks.append(network)
 
     # train new batch
-    scores = train_batch(networks, batch)
+    scores = train_batch(networks, batch + 1)
 
     highest_score_index = scores.index(max(scores))
     if scores[highest_score_index] > best_score:
