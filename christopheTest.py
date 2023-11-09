@@ -1,49 +1,91 @@
-NUM_TANKS = 3
-
+import copy
 import math
 import sys
 import pygame
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import random
+import pygame.font
 
-# Constants
+# constants
 
-# Game settings
-SPRITE_SCALING = 0.05
-SCREEN_WIDTH = 100
+# game settings
+SPRITE_SCALING = 0.125
+SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 700
-SCREEN_TITLE = "PPO RL Tank"
-ACCELERATION = 0.1
+SCREEN_TITLE = "RL Tank"
+ACCELERATION = 0.2
 STEERING_SPEED = 0.1
 MIN_SPEED = 0
-MAX_SPEED = 1
+MAX_SPEED = 100
 INITIAL_POS = 50, 50
 IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
 FRAMES_PER_SECOND = 60
-TIME_PER_RUN = 50  # seconds
+WALLS = [
+    #horizontaal
+    pygame.Rect(300, 0, 20, 350),
+    pygame.Rect(600, 350, 20, 350),
+    pygame.Rect(900, 0, 20, 350),
 
-# Training parameters
-INPUT_SIZE = 7  # speed, direction, distance from 5 raycasts
-HIDDEN_LAYER_SIZE = 64
-OUTPUT_SIZE = 2  # steering direction, acceleration
-LEARNING_RATE = 0.001
-EPSILON = 0.02
-CLIP_RATIO = 0.2
-VALUE_COEFFICIENT = 0.5
-ENTROPY_COEFFICIENT = 0.01
-NUM_EPOCHS = 100
-NUM_MINI_BATCHES = 32
-GAMMA = 0.2
+    #verticaal
+    pygame.Rect(150, 450, 300, 20),
+    pygame.Rect(450, 250, 300, 20),
+    pygame.Rect(750, 450, 300, 20),
 
-# Value net parameters
-VALUE_HIDDEN_LAYER_SIZE = 64
+]
+TARGET = (pygame.Rect(910, 0, 300, 30),)
 
-walls = []
 
-torch.autograd.set_detect_anomaly(True)
+# hyperparameters
+INPUT_SIZE = 7  # speed, direction, 5 raycasts
+OUTPUT_SIZE = 2  # acceleration, steering
+FIRST_HIDDEN_LAYER_SIZE = 8
+SECOND_HIDDEN_LAYER_SIZE = 8
+
+# training settings
+TIME_PER_RUN = 10  # seconds
+BATCH_COUNT = 1000  # an extra 0th batch will always happen first
+# the first position in a batch is reserved for the previous best
+# before the 0th run, the previous best will be pulled from a file
+BATCH_SIZE = 16
+PERTURBATION_SCALES = [0.5, 0.1, 0.05, 0.01, 0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001, 0.00005, 0.000025, 0.00001, 0.000005, 0.0000025, 0.000001]
+# the last value is never used
+
+MODEL_PATH = "saved networks/Reinforcement learning.pth"
+FONT_SIZE = 36
+RENDER_DEATHS = True
+
+# TODO
+"""
+belangrijke todos:
+    score systeem verbeteren:
+        checkpoint systeem
+        A* payhfinding
+    async maken:
+        render en input handling op een andere manier regelen
+        meerdere runnen in een batch
+        met de GPU werken
+
+beste score onthouden ipv beste network onthouden en beste score telkens opnieuw te berekenen
+
+belangrijk: kleurtjes (andere kleur voor record)
+
+andere route maken
+
+render uit/aanknop op scherm/ een bepaalde toets om renderen te toggelen?
+
+ipv random pertubations, meer nadenken over wat er veranderd moet worden: onthouden wat er al geprobeerd is (gradient descent?)
+
+experimenteren met hyperparameters: meer hidden layers, kleinere of grotere hidden layers, meer of minder raycasts
+experimenteren met training parameters: perturbation scale groter of kleiner, grotere of kleinere batches
+"""
+
+
+def distance_between_2_points(p1, p2):
+    rel_vector = pygame.Vector2(p1 - p2)
+    distance = rel_vector.length()
+    return distance
+
 
 class Player:
     def __init__(self):
@@ -58,8 +100,6 @@ class Player:
         self.pos = pygame.Vector2(INITIAL_POS)
         self.speed = 0
         self.direction = 0  # radians
-        self.change_angle = 0
-        self.acceleration = 0
         self.raycast_hits = []
 
         self.radius = math.sqrt(
@@ -67,9 +107,9 @@ class Player:
         )
         self.rect = self.image.get_rect(center=self.pos)
 
-    def update(self, dt):
+    def update(self, change_angle=0, acceleration=0):
         # update direction
-        self.direction += self.change_angle * STEERING_SPEED
+        self.direction += change_angle * STEERING_SPEED
 
         # normalize direction to always be positive
         if self.direction <= 0:
@@ -79,7 +119,7 @@ class Player:
         self.direction = self.direction % (2 * math.pi)
 
         # update speed
-        self.speed += self.acceleration * ACCELERATION
+        self.speed += acceleration * ACCELERATION
 
         # cap speed
         self.speed = min(MAX_SPEED, self.speed)
@@ -92,6 +132,12 @@ class Player:
         # update raycasts
         self.cast_rays()
 
+        # update rect
+        rotated_player = pygame.transform.rotate(
+            self.image, math.degrees(self.direction)
+        )
+        self.rect = rotated_player.get_rect(center=self.pos)
+
     # returns Vector2 of the absolute position of the hit point
     def cast_ray(self, angle):
         x, y = self.pos
@@ -101,7 +147,7 @@ class Player:
             x += step_size * math.cos(angle)
             y += step_size * math.sin(angle)
 
-            for wall in walls:
+            for wall in WALLS:
                 if wall.collidepoint(x, y):
                     return pygame.Vector2(x, y)
 
@@ -109,15 +155,15 @@ class Player:
 
     def cast_rays(self):
         self.raycast_hits = []
-        # 5 raycasts, 45 degree separation: 0, 45, 90, 135, 180
+        # 5 raycasts, 45 degree seperation: 0, 45, 90, 135, 180
         for angle in range(0, 181, 45):
             ray_angle = math.radians(angle) - self.direction
             hit = self.cast_ray(ray_angle)
             self.raycast_hits.append(hit)
 
-    # returns True if a wall was hit or out of bounds
-    def check_collision(self, walls):
-        for wall in walls:
+    # returns True if wall was hit or oob
+    def check_collision(self):
+        for wall in WALLS:
             if self.rect.colliderect(wall):
                 return True
 
@@ -133,126 +179,42 @@ class Player:
 
     def get_inputs(self):
         inputs = [
-            self.speed / MAX_SPEED,  # Normalize speed to [0, 1]
+            (self.speed - MIN_SPEED)
+            / (MAX_SPEED - MIN_SPEED),  # Normalize speed to [0, 1]
             self.direction / (2 * math.pi),  # Normalize direction to [0, 1]
         ]
         for hit in self.raycast_hits:
-            # calculate relative position of hit
-            rel_pos = pygame.Vector2(self.pos - hit)
-            # then calculate length
-            distance = rel_pos.length()
-            # then squash to a maximum of 1
-            squashed_distance = math.tanh(
+            distance = distance_between_2_points(self.pos, hit)
+            # then squach to maximum 1
+            squached_distance = math.tanh(
                 distance / ((SCREEN_HEIGHT + SCREEN_WIDTH) / 2)
             )
             # add to inputs
-            inputs.append(squashed_distance)
+            inputs.append(squached_distance)
 
-        for value in inputs:
-            if value > 1 or value < 0:
-                print("Inputs not normalized")
-                print(value)
+        # check for inputs outside of [0, 1]
+        # for value in inputs:
+        #     if value > 1 or value < 0:
+        #         raise Exception("inputs not normalized: " + value)
         return inputs
 
-    def reset(self):
-        self.pos = pygame.Vector2(INITIAL_POS)
-        self.speed = 0
-        self.direction = 0
-        self.change_angle = 0
-        self.acceleration = 0
-        self.raycast_hits = []
 
-class Policy(nn.Module):
+class Network(nn.Module):
     def __init__(self):
-        super(Policy, self).__init__()
-        self.fc1 = nn.Linear(INPUT_SIZE, HIDDEN_LAYER_SIZE)
+        super(Network, self).__init__()
+        self.fc1 = nn.Linear(INPUT_SIZE, FIRST_HIDDEN_LAYER_SIZE)
+        self.fc2 = nn.Linear(FIRST_HIDDEN_LAYER_SIZE, SECOND_HIDDEN_LAYER_SIZE)
+        self.fc3 = nn.Linear(SECOND_HIDDEN_LAYER_SIZE, OUTPUT_SIZE)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(HIDDEN_LAYER_SIZE, OUTPUT_SIZE)
 
     def forward(self, x):
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
         return x
 
-class Value(nn.Module):
-    def __init__(self):
-        super(Value, self).__init__()  
-        self.fc1 = nn.Linear(INPUT_SIZE, VALUE_HIDDEN_LAYER_SIZE)
-        self.fc2 = nn.Linear(VALUE_HIDDEN_LAYER_SIZE, 1)
-
-    def forward(self, state):
-        x = torch.relu(self.fc1(state))
-        state_value = self.fc2(x)
-        return state_value
-
-class PPOLoss(nn.Module):
-    def __init__(self, clip_ratio, value_coefficient, entropy_coefficient):
-        super(PPOLoss, self).__init__()
-        self.clip_ratio = clip_ratio
-        self.value_coefficient = value_coefficient
-        self.entropy_coefficient = entropy_coefficient
-
-    def forward(self, advantages, old_log_probs, values, new_log_probs, clipped_values):
-        # Policy loss
-        ratio = torch.exp(new_log_probs - old_log_probs)
-        surr1 = ratio * advantages
-        surr2 = (
-            torch.clamp(ratio, 1.0 - self.clip_ratio, 1.0 + self.clip_ratio)
-            * advantages
-        )
-        policy_loss = -torch.min(surr1, surr2).mean()
-
-        # Value loss
-        clipped_values = values + (clipped_values - values).clamp(
-            -self.clip_ratio, self.clip_ratio
-        )
-        value_loss = (
-            0.5
-            * torch.max(
-                (clipped_values - values).pow(2), (values - clipped_values).pow(2)
-            ).mean()
-        )
-
-        # Entropy regularization
-        entropy = -(new_log_probs * torch.exp(new_log_probs)).sum(dim=-1).mean()
-
-        # Total loss
-        total_loss = (
-            policy_loss
-            + self.value_coefficient * value_loss
-            - self.entropy_coefficient * entropy
-        )
-
-        return total_loss
-
-def calculate_gae_advantages(rewards, values, gamma=0.99, lambda_=0.95):
-    T = len(rewards)
-
-    # Calculate temporal differences
-    deltas = []
-    for t in range(T - 1):
-        delta_t = rewards[t] + gamma * values[t + 1] - values[t]
-        deltas.append(delta_t)
-    deltas.append(rewards[-1] - values[-1])  # Last time step
-
-    # Calculate GAE advantages
-    advantages = torch.zeros(T, dtype=torch.float32)
-    advantage = 0
-    for t in reversed(range(T)):
-        advantage = advantage * gamma * lambda_ + deltas[t]
-        advantages[t] = advantage
-
-    return advantages
-
-# Initialize your networks and optimizer
-policy_nets = [Policy() for _ in range(NUM_TANKS)]
-value_nets = [Value() for _ in range(NUM_TANKS)]
-optimizers = [optim.Adam(
-    list(policy_net.parameters()) + list(value_net.parameters()), lr=LEARNING_RATE
-) for policy_net, value_net in zip(policy_nets, value_nets)]
-
-ppo_losses = [PPOLoss(CLIP_RATIO, VALUE_COEFFICIENT, ENTROPY_COEFFICIENT) for _ in range(NUM_TANKS)]
 
 # Pygame setup
 pygame.init()
@@ -260,88 +222,241 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 
-# Create multiple tanks
-tanks = [Player() for _ in range(NUM_TANKS)]
+pygame.font.init()
+font = pygame.font.Font(None, FONT_SIZE)
 
-# Lists to track the state of each tank
-tank_states = [{"hit_wall": False} for _ in range(NUM_TANKS)]
 
-# PPO optimization loop
-for epoch in range(NUM_EPOCHS):
-    running = True
-    i = 0
-    dt = 0
+def event_handling():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
 
-    # Initialize states, actions, rewards, and values for each tank
-    states = [[] for _ in range(NUM_TANKS)]
-    actions = [[] for _ in range(NUM_TANKS)]
-    rewards = [[] for _ in range(NUM_TANKS)]
-    values = [[] for _ in range(NUM_TANKS)]
 
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+def render(players, walls, should_raycasts, batch):
+    # clear previous screen
+    screen.fill((127, 127, 127))
 
-        # Update and check the state of each tank
-        for tank_idx, tank in enumerate(tanks):
-            if not tank_states[tank_idx]["hit_wall"]:
-                tank.update(dt)
-                died = tank.check_collision(walls)
+    # render target
+    pygame.draw.rect(screen, (255, 64, 128), TARGET)
 
-                running = running and not died
+    # render walls
+    for wall in walls:
+        pygame.draw.rect(screen, (0, 0, 0), wall)
 
-                if i > TIME_PER_RUN * FRAMES_PER_SECOND:
-                    running = False
-                i += 1
-
-                reward = tank.pos.y
-
-                if died:
-                    reward = -SCREEN_HEIGHT
-                    tank_states[tank_idx]["hit_wall"] = True
-
-                inputs = torch.tensor(tank.get_inputs(), dtype=torch.float32)
-
-                outputs = policy_nets[tank_idx](inputs)
-
-                tank.change_angle = torch.tanh(outputs[0]).item()
-                tank.acceleration = torch.tanh(outputs[1]).item()
-
-                states[tank_idx].append(inputs)
-                actions[tank_idx].append(
-                    torch.tensor([tank.change_angle, tank.acceleration], dtype=torch.float32)
-                )
-                rewards[tank_idx].append(torch.tensor(reward))
-                values[tank_idx].append(value_nets[tank_idx](inputs))
-
-        screen.fill((0, 0, 0))
-
-        for wall in walls:
-            pygame.draw.rect(screen, (127, 127, 127), wall)
-
-        for tank in tanks:
-            for hit in tank.raycast_hits:
+    p_index = 0
+    for player in players:
+        # render raycast
+        if should_raycasts[p_index]:
+            for hit in player.raycast_hits:
                 pygame.draw.circle(screen, (0, 127, 0), hit, 5)
                 pygame.draw.line(
-                    screen, (127, 0, 0), tank.pos, (int(hit[0]), int(hit[1]))
+                    screen, (127, 0, 0), player.pos, (int(hit[0]), int(hit[1]))
                 )
 
-            rotated_tank = pygame.transform.rotate(
-                tank.image, math.degrees(tank.direction)
-            )
-            tank.rect = rotated_tank.get_rect(center=tank.pos)
-            screen.blit(rotated_tank, tank.rect.topleft)
+        # render player
+        rotated_player = pygame.transform.rotate(
+            player.image, math.degrees(player.direction)
+        )
+        screen.blit(rotated_player, player.rect.topleft)
+        pygame.draw.rect(screen, (0, 255, 0), player.rect, 1)
+        p_index += 1
 
-        pygame.display.flip()
-        dt = clock.tick(60) / 1000
+    # Render text
+    text = font.render(
+        f"Current Batch: {batch}", True, (255, 255, 255)  # Text color (white)
+    )
+    text_rect = text.get_rect()
+    text_rect.topleft = (10, 10)  # Position of the text on the screen
+    screen.blit(text, text_rect)
 
-    # Check if all tanks have hit a wall
-    if all(tank_state["hit_wall"] for tank_state in tank_states):
-        # Reset all tanks and start a new episode
-        for tank_idx, tank in enumerate(tanks):
-            tank_states[tank_idx]["hit_wall"] = False
-            tank.reset()
+    # output render to display
+    pygame.display.flip()
+    clock.tick(FRAMES_PER_SECOND)
 
-# ... (rest of the PPO optimization loop)
+def calculate_score(x, y, step, hit_finish):
+    if x < 310:
+        score = x + y
+    elif x < 610:
+        score = x + SCREEN_HEIGHT - y + 1000
+    elif x < 910:
+        score = x + y + 2000
+    else:
+        score = SCREEN_HEIGHT - y + 5000
+
+    # bonus score: faster to target -> more points
+    if hit_finish:
+        score += TIME_PER_RUN * FRAMES_PER_SECOND - step
+
+    return score
+
+
+def run(player, network, pos_in_batch):
+    running = True
+    step = 0  # aka frame
+    score = 0
+    acceleration = 0
+    change_angle = 0
+
+    while running:
+        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
+        event_handling()
+
+        # game logic
+        player.update(change_angle, acceleration)
+        died = player.check_collision()
+        running = not died
+
+        # stop after too much time
+        if step > TIME_PER_RUN * FRAMES_PER_SECOND:
+            running = False
+        step += 1
+        
+        if died:
+            score = calculate_score(player.pos.x, player.pos.y, step, player.rect.colliderect(TARGET))
+
+        # Get inputs for the neural network
+        inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
+
+        # Forward pass
+        outputs = network(inputs)
+
+        # Extract steering direction and acceleration from the outputs
+        # and squach to [-1, 1]
+        change_angle = torch.tanh(outputs[0]).item()
+        acceleration = torch.tanh(outputs[1]).item()
+    # render a red circle on death location
+    if RENDER_DEATHS:
+        pygame.draw.circle(screen, (((pos_in_batch + 1) * 16) - 1, 0, 0), player.pos, 3)
+    return score
+
+
+def render_run(player, network, batch):
+    running = True
+    step = 0  # aka frame
+    acceleration = 0
+    change_angle = 0
+
+    while running:
+        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
+        event_handling()
+
+        # game logic
+        player.update(change_angle, acceleration)
+        died = player.check_collision()
+        running = not died
+
+        # stop after too much time
+        if step > TIME_PER_RUN * FRAMES_PER_SECOND:
+            running = False
+        step += 1
+
+        # Get inputs for the neural network
+        inputs = torch.tensor(player.get_inputs(), dtype=torch.float32)
+
+        # Forward pass
+        outputs = network(inputs)
+
+        # Extract steering direction and acceleration from the outputs
+        # and squach to [-1, 1]
+        change_angle = torch.tanh(outputs[0]).item()
+        acceleration = torch.tanh(outputs[1]).item()
+
+        # rendering
+        render([player], WALLS, [True], batch)
+
+
+def perturb_model(model, perturbation_scale):
+    returnable_model = copy.deepcopy(model)
+    for param in returnable_model.parameters():
+        perturbation = perturbation_scale * torch.randn_like(param)
+        param.data.add_(perturbation)
+    return returnable_model
+
+
+def train_batch(networks):
+    scores = []
+    i = 0
+    for network in networks:
+        score = run(Player(), network, i)
+        scores.append(score)
+        if RENDER_DEATHS:
+            pygame.display.flip()
+        i += 1
+    return scores
+
+
+# render without player
+render([], WALLS, False, "0")
+
+# load previous best from file
+pulled_from_file = False
+networks = []
+try:
+    network = Network()
+    network.load_state_dict(torch.load(MODEL_PATH))
+    networks = [network]
+    pulled_from_file = True
+except:
+    pass
+
+# batch 0
+for i in range(BATCH_SIZE - int(pulled_from_file)):
+    networks.append(Network())
+
+scores = train_batch(networks)
+
+best_score = max(scores)
+highest_score_index = scores.index(best_score)
+
+render_run(Player(), networks[highest_score_index], "0")
+
+# clear terminal
+print("\033c", end="")
+# print info on current batch
+print("current batch: 0\nlast change: n/a\npoints: " + str(best_score))
+
+best_network = networks[highest_score_index]
+last_batch_change = "n/a"
+
+# perform all runs
+for batch in range(BATCH_COUNT):
+    networks = [best_network]
+
+    # copy and perturbate the previous best
+    for j in range(BATCH_SIZE - 1):
+        network = perturb_model(best_network, PERTURBATION_SCALES[j])
+        networks.append(network)
+
+    # train new batch
+    scores = train_batch(networks)
+
+    highest_score_index = scores.index(max(scores))
+    if scores[highest_score_index] > best_score:
+        best_score = scores[highest_score_index]
+        last_batch_change = "batch " + str(batch + 1)
+
+        print(
+            "\033[92mnew best, look at game window to see, index: "
+            + str(highest_score_index)
+            + "\033[0m"
+        )
+
+        # render the new best
+        render_run(Player(), best_network, batch + 1)
+
+        # save best network to file
+        best_network = networks[highest_score_index]
+        torch.save(best_network.state_dict(), MODEL_PATH)
+
+    # clear terminal
+    print("\033c", end="")
+    # print info on current batch
+    print(
+        "current batch: "
+        + str(batch + 1)
+        + "\nlast change: "
+        + last_batch_change
+        + "\npoints: "
+        + str(best_score)
+    )
