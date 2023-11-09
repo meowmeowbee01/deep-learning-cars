@@ -28,7 +28,7 @@ WALLS = [
     pygame.Rect(600, 200, 20, 600),
     pygame.Rect(900, 0, 20, 600),
 ]
-TARGET = pygame.Rect(910, 0, 300, 30)
+TARGET = pygame.Rect(920, 0, 300, 30)
 
 
 # hyperparameters
@@ -65,9 +65,9 @@ PERTURBATION_SCALES = [
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
-RENDER_DEATHS = True
+RENDER_DEATHS = False
 RENDER_HITBOX = False
-RENDER_RAYCASTS = True
+RENDER_RAYCASTS = False
 
 # TODO
 """
