@@ -279,6 +279,7 @@ def render(players, walls, should_raycasts, batch):
             player.image, math.degrees(player.direction)
         )
         screen.blit(rotated_player, player.rect.topleft)
+        pygame.draw.rect(screen, (0, 255, 0), player.rect, 1)
         p_index += 1
 
     # Render text
