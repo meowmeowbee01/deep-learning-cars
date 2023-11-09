@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import pygame.font
 import threading
+from queue import Queue
 
 # constants
 
@@ -302,7 +303,7 @@ def calculate_score(x, y, step, hit_finish):
     return score
 
 
-def run(player, network, pos_in_batch):
+def run(player, network, pos_in_batch, score_queue):
     running = True
     step = 0  # aka frame
     score = 0
@@ -310,8 +311,6 @@ def run(player, network, pos_in_batch):
     change_angle = 0
 
     while running:
-        # this loop is the most nested loop so we do event handling here, despite it seeming out of place
-        event_handling()
 
         # game logic
         player.update(change_angle, acceleration)
@@ -341,7 +340,7 @@ def run(player, network, pos_in_batch):
     # render a red circle on death location
     if RENDER_DEATHS:
         pygame.draw.circle(screen, (((pos_in_batch + 1) * 16) - 1, 0, 0), player.pos, 3)
-    return score
+    score_queue.put({pos_in_batch:score})
 
 
 def render_run(player, network, batch):
@@ -382,14 +381,34 @@ def perturb_model(model, perturbation_scale):
         param.data.add_(perturbation)
     return returnable_model
 
+def find_value(data_list, pos):
+    for data in data_list:
+        key = list(data.keys())[0]
+        if key == pos:
+            return list(data.values())[0]
+
+def extract_and_sort_values(data_list):
+    data_dict = {}
+    for i in range(len(data_list)):
+        data_dict[i] = find_value(data_list, i)
+    returnable = []
+    for i in range(len(data_dict)):
+        returnable.append(data_dict[i])
+    return returnable
 
 def train_batch(networks):
     scores = []
-    i = 0
-    for network in networks:
-        score = run(Player(), network, i)
-        scores.append(score)
-        i += 1
+    threads = []
+    score_queue = Queue()
+    for i in range(len(networks)):
+        thread = threading.Thread(target=run,args=(Player(), networks[i], i, score_queue))
+        thread.start()
+        threads.append(thread)
+    for thread in threads:
+        thread.join()
+    while not score_queue.empty():
+        scores.append(score_queue.get())
+    scores = extract_and_sort_values(scores)
     if RENDER_DEATHS:
         pygame.display.flip()
     return scores
@@ -433,6 +452,7 @@ last_batch_change = "n/a"
 
 # perform all runs
 for batch in range(BATCH_COUNT):
+    event_handling()
     networks = [best_network]
 
     # copy and perturbate the previous best
