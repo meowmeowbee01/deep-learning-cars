@@ -13,7 +13,7 @@ from queue import Queue
 # game settings
 SPRITE_SCALING = 0.05
 SCREEN_WIDTH = 1200
-SCREEN_HEIGHT = 700
+SCREEN_HEIGHT = 800
 SCREEN_TITLE = "RL Tank"
 ACCELERATION = 0.2
 STEERING_SPEED = 0.1
@@ -24,9 +24,9 @@ IMAGE_PATH = "tank_real_2.png"
 RAYCAST_STEP_SIZE = 5
 FRAMES_PER_SECOND = 60
 WALLS = [
-    pygame.Rect(300, 0, 20, 350),
-    pygame.Rect(600, 350, 20, 350),
-    pygame.Rect(900, 0, 20, 350),
+    pygame.Rect(300, 0, 20, 600),
+    pygame.Rect(600, 200, 20, 600),
+    pygame.Rect(900, 0, 20, 600),
 ]
 TARGET = pygame.Rect(910, 0, 300, 30)
 
@@ -44,28 +44,30 @@ BATCH_COUNT = 1000  # an extra 0th batch will always happen first
 # before the 0th run, the previous best will be pulled from a file
 BATCH_SIZE = 16
 PERTURBATION_SCALES = [
-    1, 
-    0.5, 
     0.5,
-    0.375,
+    0.5,
+    0.5,
     0.25,
-    0.25, 
-    0.1, 
-    0.1, 
+    0.25,
+    0.25,
+    0.1,
+    0.1,
     0.05,
-    0.05, 
+    0.05,
     0.025,
-    0.025, 
-    0.01, 
-    0.01, 
-    0.005, 
-    0.005
+    0.025,
+    0.01,
+    0.01,
+    0.005,
+    0.005,
 ]
 # the last value is never used
 
 MODEL_PATH = "saved networks/Reinforcement learning.pth"
 FONT_SIZE = 36
 RENDER_DEATHS = True
+RENDER_HITBOX = False
+RENDER_RAYCASTS = True
 
 # TODO
 """
@@ -244,6 +246,7 @@ def event_handling():
             pygame.quit()
             sys.exit()
 
+
 def render_text(batch):
     pygame.draw.rect(screen, (158, 158, 232), pygame.Rect(0, 0, 300, 40))
     text = font.render(
@@ -252,6 +255,7 @@ def render_text(batch):
     text_rect = text.get_rect()
     text_rect.topleft = (10, 10)  # Position of the text on the screen
     screen.blit(text, text_rect)
+
 
 def render(players, walls, should_raycasts, batch):
     # clear previous screen
@@ -279,7 +283,8 @@ def render(players, walls, should_raycasts, batch):
             player.image, math.degrees(player.direction)
         )
         screen.blit(rotated_player, player.rect.topleft)
-        pygame.draw.rect(screen, (0, 255, 0), player.rect, 1)
+        if RENDER_HITBOX:
+            pygame.draw.rect(screen, (0, 255, 0), player.rect, 1)
         p_index += 1
 
     # Render text
@@ -315,7 +320,6 @@ def run(player, network, pos_in_batch, score_queue):
     change_angle = 0
 
     while running:
-
         # game logic
         player.update(change_angle, acceleration)
         died = player.check_collision()
@@ -344,7 +348,7 @@ def run(player, network, pos_in_batch, score_queue):
     # render a red circle on death location
     if RENDER_DEATHS:
         pygame.draw.circle(screen, (((pos_in_batch + 1) * 16) - 1, 0, 0), player.pos, 3)
-    score_queue.put({pos_in_batch:score})
+    score_queue.put({pos_in_batch: score})
 
 
 def render_run(player, network, batch):
@@ -375,7 +379,7 @@ def render_run(player, network, batch):
         acceleration = torch.tanh(outputs[1]).item()
 
         # rendering
-        render([player], WALLS, [True], batch)
+        render([player], WALLS, [RENDER_RAYCASTS], batch)
 
 
 def perturb_model(model, perturbation_scale):
@@ -385,11 +389,13 @@ def perturb_model(model, perturbation_scale):
         param.data.add_(perturbation)
     return returnable_model
 
+
 def find_value(data_list, pos):
     for data in data_list:
         key = list(data.keys())[0]
         if key == pos:
             return list(data.values())[0]
+
 
 def extract_and_sort_values(data_list):
     data_dict = {}
@@ -400,12 +406,15 @@ def extract_and_sort_values(data_list):
         returnable.append(data_dict[i])
     return returnable
 
+
 def train_batch(networks, current_batch):
     scores = []
     threads = []
     score_queue = Queue()
     for i in range(len(networks)):
-        thread = threading.Thread(target=run,args=(Player(), networks[i], i, score_queue))
+        thread = threading.Thread(
+            target=run, args=(Player(), networks[i], i, score_queue)
+        )
         thread.start()
         threads.append(thread)
     for thread in threads:
@@ -415,7 +424,7 @@ def train_batch(networks, current_batch):
     scores = extract_and_sort_values(scores)
     if RENDER_DEATHS:
         render_text(current_batch)
-        pygame.display.flip()       
+        pygame.display.flip()
     return scores
 
 
