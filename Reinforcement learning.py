@@ -400,7 +400,6 @@ def extract_and_sort_values(data_list):
 
 
 def train_batch(networks, current_batch):
-    scores = []
     threads = []
     score_queue = Queue()
     for i in range(len(networks)):
@@ -409,11 +408,21 @@ def train_batch(networks, current_batch):
         )
         thread.start()
         threads.append(thread)
+
     for thread in threads:
         thread.join()
+
+    # putting all the scores in a single dict
+    scores_dict = {}
     while not score_queue.empty():
-        scores.append(score_queue.get())
-    scores = extract_and_sort_values(scores)
+        score = score_queue.get()
+        scores_dict[list(score.keys())[0]] = list(score.values())[0]
+
+    # sorting the scores into an ordered list
+    scores = []
+    for i in range(len(scores_dict)):
+        scores.append(scores_dict[i])
+    
     render_text(current_batch)
     pygame.display.flip()
     return scores
